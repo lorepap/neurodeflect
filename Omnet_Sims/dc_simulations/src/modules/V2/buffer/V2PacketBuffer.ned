@@ -33,6 +33,7 @@ simple V2PacketBuffer extends PacketBuffer
 	parameters:
         @class(V2PacketBuffer);
         double dt_alpha = default(1);
+        double deflection_threshold = default(dt_alpha); // New parameter for configurable deflection threshold
         
         ////@signal[sharedMemQueueLenByte](type=long);
 		////@statistic[sharedMemQueueLengthByte](title="The shared mem length in bytes"; source="sharedMemQueueLenByte"; record=vector; interpolationmode=none);

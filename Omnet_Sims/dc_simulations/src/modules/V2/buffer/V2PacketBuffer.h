@@ -33,6 +33,7 @@ class INET_API V2PacketBuffer : public PacketBuffer
         long on_the_way_packet_num = 0;
         b on_the_way_packet_length = b(0);
         double dt_alpha;
+        double deflection_threshold; // New parameter for configurable deflection threshold
 
         virtual void addPacket(Packet *packet) override;
         virtual void removePacket(Packet *packet) override;
@@ -43,6 +44,11 @@ class INET_API V2PacketBuffer : public PacketBuffer
         virtual bool is_queue_full_DT(b packet_length, long on_the_way_packet_num = 0, b on_the_way_packet_length = b(0), int qlen_pkt_num = -1, b qlen_bytes = b(-1));
         virtual bool is_queue_full(b packet_length, long on_the_way_packet_num = 0, b on_the_way_packet_length = b(0), int qlen_pkt_num = -1, b qlen_bytes = b(-1));
         virtual int get_UB();
+        
+        // New methods for deflection threshold management
+        virtual void setDeflectionThreshold(double threshold);
+        virtual double getDeflectionThreshold() const;
+        virtual double getCurrentThreshold() const; // Returns the currently active threshold (deflection_threshold or dt_alpha)
 };
 
 #endif // ifndef __V2INET_PACKETBUFFER_H

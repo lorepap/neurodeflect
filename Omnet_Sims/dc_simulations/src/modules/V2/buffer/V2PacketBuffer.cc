@@ -31,6 +31,13 @@ void V2PacketBuffer::initialize(int stage)
 {
     PacketBuffer::initialize(stage);
     dt_alpha = par("dt_alpha");
+    
+    // Initialize deflection_threshold with a parameter if it exists, otherwise use dt_alpha
+    if (hasPar("deflection_threshold")) {
+        deflection_threshold = par("deflection_threshold");
+    } else {
+        deflection_threshold = dt_alpha; // Use dt_alpha as default if deflection_threshold is not specified
+    }
 }
 
 void V2PacketBuffer::addPacket(Packet *packet)
@@ -68,11 +75,13 @@ bool V2PacketBuffer::is_queue_full_DT(b packet_length, long on_the_way_packet_nu
     EV << "V2PacketBuffer::is_queue_full_DT" << endl;
 
     int UB = get_UB(); // The part of buffer that is yet not occupied
+    double current_threshold = getCurrentThreshold(); // Use the current active threshold
+    
     if (getMaxNumPackets() != -1) {
         EV << "Queue occupancy is " << qlen_pkt_num + on_the_way_packet_num << endl;
-        EV << "UB * alpha is " << UB * dt_alpha << endl;
+        EV << "UB * threshold is " << UB * current_threshold << endl;
         // we should also consider on the way packets
-        if (qlen_pkt_num + on_the_way_packet_num + 1 >= (UB - this->on_the_way_packet_num - 1) * dt_alpha) {
+        if (qlen_pkt_num + on_the_way_packet_num + 1 >= (UB - this->on_the_way_packet_num - 1) * current_threshold) {
             EV << "queue is full" << endl;
             return true;
         } else {
@@ -82,9 +91,9 @@ bool V2PacketBuffer::is_queue_full_DT(b packet_length, long on_the_way_packet_nu
     }
     if (getMaxTotalLength() != b(-1)) {
         EV << "Queue occupancy is " << (qlen_bytes + on_the_way_packet_length + packet_length).get() << endl;
-        EV << "UB * alpha is " << UB * dt_alpha << endl;
+        EV << "UB * threshold is " << UB * current_threshold << endl;
         // we should also consider on the way packets
-        if ((qlen_bytes + on_the_way_packet_length + packet_length).get() >= (UB - this->on_the_way_packet_length.get() - packet_length.get()) * dt_alpha) {
+        if ((qlen_bytes + on_the_way_packet_length + packet_length).get() >= (UB - this->on_the_way_packet_length.get() - packet_length.get()) * current_threshold) {
             EV << "queue is full" << endl;
             return true;
         } else {
@@ -145,9 +154,11 @@ int V2PacketBuffer::get_UB()
 bool V2PacketBuffer::isOverloadedDT(int qlen_pkt_num, b qlen_bytes) {
     EV << "V2PacketBuffer::isOverloadedDT called!" << endl;
     int UB = get_UB(); // The part of buffer that is yet not occupied
+    double current_threshold = getCurrentThreshold(); // Use the current active threshold
+    
     if (getMaxNumPackets() != -1) {
         EV << "qlen_pkt_num is " << qlen_pkt_num << endl;
-        if (qlen_pkt_num >= UB * dt_alpha) {
+        if (qlen_pkt_num >= UB * current_threshold) {
             return true;
         } else {
             return false;
@@ -155,7 +166,7 @@ bool V2PacketBuffer::isOverloadedDT(int qlen_pkt_num, b qlen_bytes) {
     }
     if (getMaxTotalLength() != b(-1)) {
         EV << "qlen bits is " << qlen_bytes.get() << endl;
-        if (qlen_bytes.get() >= UB * dt_alpha) {
+        if (qlen_bytes.get() >= UB * current_threshold) {
             return true;
         } else {
             return false;
@@ -175,6 +186,28 @@ bool V2PacketBuffer::isOverloaded(int qlen_pkt_num, b qlen_bytes)
     if (qlen_pkt_num == -1 && qlen_bytes == b(-1))
         throw cRuntimeError("V2PacketBuffer::isOverloaded --> The queue occupancy information is not transfered!");
     return isOverloadedDT(qlen_pkt_num, qlen_bytes);
+}
+
+// New methods for deflection threshold management
+void V2PacketBuffer::setDeflectionThreshold(double threshold)
+{
+    EV << "V2PacketBuffer::setDeflectionThreshold - Setting deflection threshold to " << threshold << endl;
+    if (threshold < 0.0 || threshold > 1.0) {
+        throw cRuntimeError("Deflection threshold must be between 0.0 and 1.0, got: %f", threshold);
+    }
+    deflection_threshold = threshold;
+}
+
+double V2PacketBuffer::getDeflectionThreshold() const
+{
+    return deflection_threshold;
+}
+
+double V2PacketBuffer::getCurrentThreshold() const
+{
+    // Return the deflection_threshold if it's been set explicitly, otherwise use dt_alpha
+    // This provides backward compatibility while allowing for new threshold configurations
+    return deflection_threshold;
 }
 
 
