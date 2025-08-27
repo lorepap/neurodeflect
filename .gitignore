@@ -22,3 +22,31 @@ src/dc_simulations_dbg
 perf*
 */dc_simulations/out/
 Omnet_Sims/dc_simulations/simulations/Vertigo_Sims/figs/
+
+# Data files and dataset outputs
+*.csv
+*.bz2
+*.out
+*.sca
+*.vec
+*/results*/
+*/extracted_results*/
+*/results_1G*/
+*/results_backup*/
+*/logs/
+*/figs/
+*dataset*.csv
+*threshold_dataset*.csv
+*combined_threshold_dataset*.csv
+
+# Temporary files
+Makefile.*
+*.tmp
+*.log
+core.*
+*.debug
+
+# RL Training outputs
+*/models/
+*/experiments/
+*/logs/

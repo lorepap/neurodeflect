@@ -132,14 +132,14 @@ def main():
     parser = argparse.ArgumentParser(
         description='Filtra CSV basati su occorrenze di seq_num e unisce i primi due.'
     )
-    parser.add_argument('--dir1', default='/home/ubuntu/pd/Omnet_Sims/dc_simulations/simulations/sims/results_1G/SND_TS_SEQ_NUM',
-                        help='Cartella con il primo CSV (time, seq_num)')
-    parser.add_argument('--dir2', default='/home/ubuntu/pd/Omnet_Sims/dc_simulations/simulations/sims/results_1G/RCV_TS_SEQ_NUM',
-                        help='Cartella con il secondo CSV (time, seq_num)')
-    parser.add_argument('--dir3', default='/home/ubuntu/pd/Omnet_Sims/dc_simulations/simulations/sims/results_1G/OOO_SEG',
-                        help='Cartella con il terzo CSV')
-    parser.add_argument('--file4', default='/home/ubuntu/pd/Omnet_Sims/dc_simulations/simulations/sims/results_1G/merged_final.csv',
-                        help='Percorso al quinto CSV')
+    parser.add_argument('--dir1', default='results_1G/SND_TS_SEQ_NUM',
+                        help='Prima cartella (default: results_1G/SND_TS_SEQ_NUM)')
+    parser.add_argument('--dir2', default='results_1G/RCV_TS_SEQ_NUM',
+                        help='Seconda cartella (default: results_1G/RCV_TS_SEQ_NUM)')
+    parser.add_argument('--dir3', default='results_1G/OOO_SEG',
+                        help='Terza cartella (default: results_1G/OOO_SEG)')
+    parser.add_argument('--file4', default='results_1G/merged_final.csv',
+                        help='Quarto file (default: results_1G/merged_final.csv)')
     args = parser.parse_args()
 
     # Trova i file CSV

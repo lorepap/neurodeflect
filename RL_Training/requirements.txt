@@ -1,0 +1,20 @@
+# RL Training Requirements
+# Core machine learning frameworks
+torch>=1.9.0
+numpy>=1.20.0
+pandas>=1.3.0
+scikit-learn>=1.0.0
+
+# Visualization and analysis
+matplotlib>=3.4.0
+seaborn>=0.11.0
+
+# Logging and monitoring
+tensorboard>=2.8.0
+
+# Data processing
+scipy>=1.7.0
+
+# Optional: For advanced features
+# gym>=0.21.0  # If we want to create custom environments
+# wandb>=0.12.0  # For experiment tracking (alternative to tensorboard)
