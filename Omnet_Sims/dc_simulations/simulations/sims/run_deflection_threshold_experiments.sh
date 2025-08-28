@@ -7,8 +7,8 @@
 # Usage: ./run_deflection_threshold_experiments.sh <simulation_time>
 # Example: ./run_deflection_threshold_experiments.sh 10s
 #
-# FIXED: Updated to use correct byte-based thresholds (15000, 25000, 35000, 45000)
-# instead of percentage values (0.3, 0.5, 0.7, 0.9) due to type mismatch bug
+# FIXED: Updated to use correct byte-based thresholds reflecting 30%, 50%, 75%, 100%
+# of a 50KB buffer: (15000, 25000, 37500, 50000) instead of older values.
 
 # Check if simulation time parameter is provided
 if [ $# -eq 0 ]; then
@@ -54,7 +54,7 @@ bash dir_creator.sh
 
 echo "\n\n-------------------------------------------"
 echo "Running DCTCP_SD with Threshold Variation"
-echo "This will test thresholds: 15000, 25000, 35000, 45000 50000 bytes (30%, 50%, 70%, 90%, 100%)"
+echo "This will test thresholds: 15000, 25000, 37500, 50000 bytes (30%, 50%, 75%, 100%)"
 echo "Simulation time: $SIMULATION_TIME"
 echo "-------------------------------------------"
 
@@ -63,7 +63,7 @@ echo "-------------------------------------------"
 opp_runall -j50 ../../src/dc_simulations -m -u Cmdenv -c DCTCP_SD_THRESHOLD_VARIATION -n ..:../../src:../../../inet/src:../../../inet/examples:../../../inet/tutorials:../../../inet/showcases --image-path=../../../inet/images -l ../../../inet/src/INET omnetpp_1G.ini --sim-time-limit=$SIMULATION_TIME
 
 # Process results for each threshold
-thresholds=("15000" "25000" "35000" "45000" "50000")
+thresholds=("15000" "25000" "37500" "50000")
 
 for threshold in "${thresholds[@]}"; do
     echo "\n\n-------------------------------------------"
