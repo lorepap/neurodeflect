@@ -22,7 +22,8 @@ def combine_threshold_datasets(thresholds_str):
     print(f"Combining datasets for thresholds: {thresholds}")
     
     # Buffer capacity in bytes (from omnetpp_1G.ini configuration)
-    BUFFER_CAPACITY_BYTES = 50000
+    # DCTCP_SD_THRESHOLD_VARIATION sets dataCapacity = 200000B
+    BUFFER_CAPACITY_BYTES = 200000
     
     # Collect all threshold datasets
     all_datasets = []
@@ -82,7 +83,7 @@ def combine_threshold_datasets(thresholds_str):
     threshold_counts = combined_df['deflection_threshold'].value_counts().sort_index()
     
     # Create a mapping from percentage back to bytes for display
-    BUFFER_CAPACITY_BYTES = 50000
+    BUFFER_CAPACITY_BYTES = 200000
     for threshold_pct, count in threshold_counts.items():
         threshold_bytes = int(threshold_pct * BUFFER_CAPACITY_BYTES)
         print(f"  Threshold {threshold_pct:.1f} ({threshold_bytes} bytes, {threshold_pct:.1%}): {count:,} rows")

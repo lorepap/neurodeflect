@@ -19,7 +19,7 @@ echo "Note: This script assumes extraction was already done by"
 echo "run_deflection_threshold_experiments.sh"
 echo ""
 
-# Function to process data for a single threshold
+# Function to process data for a single threshold (no extraction here)
 process_threshold() {
     local threshold=$1
     
@@ -28,78 +28,20 @@ process_threshold() {
     echo "Processing threshold: $threshold"
     echo "============================================="
     
-    # The extracted results should be in one of these locations after run_deflection_threshold_experiments.sh
+    # Locate already-extracted CSVs (produced by run_deflection_threshold_experiments.sh)
+    # Preferred layout: per-threshold extracted subdirs under results/threshold_<thr>/
     local extracted_dir=""
-    
-    # Check where the extracted results are located
-    # Option 1: Check if extracted results are already in the expected format
-    if [ -d "results/threshold_${threshold}" ]; then
-        echo "Found directory: results/threshold_${threshold}/"
-        echo "Contents:"
-        ls -la "results/threshold_${threshold}/"
-        
-        # The extraction created directories like QUEUE_LEN, PACKET_ACTION, etc.
-        # inside results/threshold_${threshold}/
-        if [ -d "results/threshold_${threshold}/QUEUE_LEN" ] || [ -d "results/threshold_${threshold}/PACKET_ACTION" ]; then
-            extracted_dir="results/threshold_${threshold}"
-            echo "✓ Found extracted data in results/threshold_${threshold}/"
-        else
-            echo "⚠ Directory exists but no extracted subdirectories found"
-            echo "  Looking for raw files to check extraction status..."
-            
-            # Check if there are any .vec files that could be extracted
-            if ls "results/threshold_${threshold}"/*.vec >/dev/null 2>&1; then
-                echo "  Found .vec files - need to run extraction first"
-                echo "  Attempting to extract now..."
-                
-                # Try to run extractor on these files
-                python3 ./extractor_shell_creator.py "dctcp_sd_threshold_${threshold}"
-                if [ -f "results/extractor.sh" ]; then
-                    pushd "results/threshold_${threshold}/" >/dev/null
-                    if [ -f "../extractor.sh" ]; then
-                        bash "../extractor.sh"
-                        popd >/dev/null
-                        echo "✓ Extraction completed"
-                        
-                        # Check if extraction created necessary directories
-                        if [ -d "results/threshold_${threshold}/QUEUE_LEN" ] || [ -d "results/threshold_${threshold}/PACKET_ACTION" ]; then
-                            extracted_dir="results/threshold_${threshold}"
-                            echo "✓ Successfully extracted data"
-                        fi
-                    else
-                        popd >/dev/null
-                        echo "✗ extractor.sh not found"
-                    fi
-                else
-                    echo "✗ Failed to create extractor.sh"
-                fi
-            fi
-        fi
+    if [ -d "results/threshold_${threshold}/QUEUE_LEN" ] || [ -d "results/threshold_${threshold}/PACKET_ACTION" ]; then
+        extracted_dir="results/threshold_${threshold}"
+        echo "✓ Using extracted data in results/threshold_${threshold}/"
+    elif [ -d "extracted_results" ]; then
+        echo "✓ Using shared extracted_results/; will filter files for threshold ${threshold}"
+        extracted_dir="extracted_results"
     fi
-    
-    # Option 2: Check if we need to look in extracted_results from a previous partial run
-    if [ -z "$extracted_dir" ] && [ -d "extracted_results_threshold_${threshold}" ]; then
-        extracted_dir="extracted_results_threshold_${threshold}"
-        echo "✓ Found extracted data in extracted_results_threshold_${threshold}/"
-    fi
-    
-    # Option 3: The extraction might have put results directly in extracted_results
-    if [ -z "$extracted_dir" ] && [ -d "extracted_results" ]; then
-        # Check if this is the current threshold's data
-        if [ -f "extracted_results/QUEUE_LEN/"*"threshold_${threshold}"* ] 2>/dev/null; then
-            extracted_dir="extracted_results"
-            echo "✓ Found extracted data in extracted_results/ (for threshold ${threshold})"
-        else
-            echo "Checking extracted_results directory contents:"
-            find "extracted_results" -type f -name "*.csv" | head -n 5
-        fi
-    fi
-    
-    # If no extracted data found, we need to run extraction
+
     if [ -z "$extracted_dir" ]; then
         echo "✗ No extracted data found for threshold ${threshold}"
-        echo "  You may need to run the extraction step first using run_deflection_threshold_experiments.sh"
-        echo "  Or manually extract using the extractor scripts"
+        echo "  Please run ./run_deflection_threshold_experiments.sh <time> first"
         return 1
     fi
     
@@ -114,13 +56,33 @@ process_threshold() {
     
     # Move/copy the extracted results to the expected location for dataset creation
     echo "Preparing data for dataset creation..."
-    rm -rf results_1G_thr_${threshold}
-    
-    # Copy the extracted data to the working directory
-    if [ "$extracted_dir" != "results_1G_thr_${threshold}" ]; then
-        cp -r "$extracted_dir" results_1G_thr_${threshold}
-        echo "✓ Copied extracted data to results_1G_thr_${threshold}/"
+    rm -rf "results_1G_thr_${threshold}"
+
+    # Populate results_1G_thr_<thr> with ONLY this threshold's CSVs
+    mkdir -p "results_1G_thr_${threshold}"
+    # Known categories
+    local cats=(QUEUE_LEN QUEUES_TOT_LEN QUEUE_CAPACITY QUEUES_TOT_CAPACITY PACKET_ACTION RCV_TS_SEQ_NUM SND_TS_SEQ_NUM OOO_SEG SWITCH_SEQ_NUM TTL ACTION_SEQ_NUM SWITCH_ID SWITCH_ID_ACTION INTERFACE_ID RETRANSMITTED)
+
+    if [ "$extracted_dir" = "extracted_results" ]; then
+        for c in "${cats[@]}"; do
+            mkdir -p "results_1G_thr_${threshold}/${c}"
+            # copy only matching CSVs for this threshold
+            if compgen -G "${extracted_dir}/${c}/*threshold_${threshold}*.csv" > /dev/null; then
+                cp ${extracted_dir}/${c}/*threshold_${threshold}*.csv "results_1G_thr_${threshold}/${c}/"
+            fi
+        done
+    else
+        # Already per-threshold structured; copy the whole directory
+        cp -r "$extracted_dir" "results_1G_thr_${threshold}"
     fi
+
+    # Sanity: ensure we have CSVs
+    local csv_count=$(find "results_1G_thr_${threshold}" -name "*.csv" -type f 2>/dev/null | wc -l)
+    if [ "$csv_count" -eq 0 ]; then
+        echo "✗ No CSV files found after preparation for threshold ${threshold}"
+        return 1
+    fi
+    echo "✓ Staged $csv_count CSV files into results_1G_thr_${threshold}/"
     
     # Create symbolic link so existing Python scripts work with expected directory name
     rm -f results_1G
@@ -135,7 +97,7 @@ process_threshold() {
     # Step 1: Create initial dataset
     if [ -f "create_dataset.py" ]; then
         echo "Creating dataset..."
-        if python3 create_dataset.py 2>&1 | tee /tmp/create_dataset_${threshold}.log | grep -E "(Created|Error|Warning|CSV|rows|dataset)" ; then
+        if python3 create_dataset.py 2>&1 | tee /tmp/create_dataset_${threshold}.log | grep -E "(Dati uniti|Duplicate|Error|Warning|CSV|rows|dataset)" ; then
             echo "✓ Dataset creation completed"
         else
             echo "⚠ Dataset creation may have encountered issues (check /tmp/create_dataset_${threshold}.log)"
@@ -209,6 +171,11 @@ successful_thresholds=()
 failed_thresholds=()
 
 echo "Starting processing of ${#THRESHOLD_ARRAY[@]} thresholds..."
+
+# Clean previous artifacts from earlier runs
+rm -f threshold_dataset_*.csv combined_threshold_dataset.csv
+rm -f results_1G
+rm -rf processed_thresholds
 
 for threshold in "${THRESHOLD_ARRAY[@]}"; do
     # Remove any whitespace
