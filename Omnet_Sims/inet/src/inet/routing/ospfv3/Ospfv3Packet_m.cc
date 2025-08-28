@@ -1594,7 +1594,7 @@ unsigned int Ospfv3LsaHeaderDescriptor::getFieldTypeFlags(int field) const
         0,    // FIELD_advertisingRouter
         FD_ISEDITABLE,    // FIELD_lsaSequenceNumber
         FD_ISEDITABLE,    // FIELD_lsaChecksum
-        0,    // FIELD_lsCrcMode
+        FD_ISEDITABLE,    // FIELD_lsCrcMode
         FD_ISEDITABLE,    // FIELD_lsaLength
     };
     return (field >= 0 && field < 9) ? fieldTypeFlags[field] : 0;
@@ -1759,6 +1759,7 @@ bool Ospfv3LsaHeaderDescriptor::setFieldValueAsString(void *object, int field, i
         case FIELD_lsaType: pp->setLsaType(string2ulong(value)); return true;
         case FIELD_lsaSequenceNumber: pp->setLsaSequenceNumber(string2ulong(value)); return true;
         case FIELD_lsaChecksum: pp->setLsaChecksum(string2ulong(value)); return true;
+        case FIELD_lsCrcMode: pp->setLsCrcMode((inet::CrcMode)string2enum(value, "inet::CrcMode")); return true;
         case FIELD_lsaLength: pp->setLsaLength(string2ulong(value)); return true;
         default: return false;
     }

@@ -423,7 +423,7 @@ unsigned int NextHopForwardingHeaderDescriptor::getFieldTypeFlags(int field) con
     static unsigned int fieldTypeFlags[] = {
         0,    // FIELD_srcAddr
         0,    // FIELD_destAddr
-        0,    // FIELD_protocolId
+        FD_ISEDITABLE,    // FIELD_protocolId
         FD_ISEDITABLE,    // FIELD_hopLimit
         FD_ISEDITABLE,    // FIELD_payloadLengthField
         FD_ISCOMPOUND | FD_ISCOBJECT,    // FIELD_tlvOptions
@@ -573,6 +573,7 @@ bool NextHopForwardingHeaderDescriptor::setFieldValueAsString(void *object, int 
     }
     NextHopForwardingHeader *pp = (NextHopForwardingHeader *)object; (void)pp;
     switch (field) {
+        case FIELD_protocolId: pp->setProtocolId((inet::IpProtocolId)string2enum(value, "inet::IpProtocolId")); return true;
         case FIELD_hopLimit: pp->setHopLimit(string2long(value)); return true;
         case FIELD_payloadLengthField: pp->setPayloadLengthField(B(string2long(value))); return true;
         default: return false;

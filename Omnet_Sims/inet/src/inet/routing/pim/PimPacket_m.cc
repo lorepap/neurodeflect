@@ -3071,7 +3071,7 @@ unsigned int PimPacketDescriptor::getFieldTypeFlags(int field) const
         FD_ISEDITABLE,    // FIELD_type
         FD_ISEDITABLE,    // FIELD_reserved
         FD_ISEDITABLE,    // FIELD_crc
-        0,    // FIELD_crcMode
+        FD_ISEDITABLE,    // FIELD_crcMode
     };
     return (field >= 0 && field < 5) ? fieldTypeFlags[field] : 0;
 }
@@ -3225,6 +3225,7 @@ bool PimPacketDescriptor::setFieldValueAsString(void *object, int field, int i, 
         case FIELD_type: pp->setType((inet::PimPacketType)string2enum(value, "inet::PimPacketType")); return true;
         case FIELD_reserved: pp->setReserved(string2long(value)); return true;
         case FIELD_crc: pp->setCrc(string2ulong(value)); return true;
+        case FIELD_crcMode: pp->setCrcMode((inet::CrcMode)string2enum(value, "inet::CrcMode")); return true;
         default: return false;
     }
 }

@@ -463,7 +463,7 @@ unsigned int WiseRouteHeaderDescriptor::getFieldTypeFlags(int field) const
         FD_ISEDITABLE,    // FIELD_seqNum
         FD_ISEDITABLE,    // FIELD_isFlood
         FD_ISEDITABLE,    // FIELD_nbHops
-        0,    // FIELD_protocolId
+        FD_ISEDITABLE,    // FIELD_protocolId
         0,    // FIELD_finalDestAddr
         0,    // FIELD_initialSrcAddr
         FD_ISEDITABLE,    // FIELD_payloadLengthField
@@ -628,6 +628,7 @@ bool WiseRouteHeaderDescriptor::setFieldValueAsString(void *object, int field, i
         case FIELD_seqNum: pp->setSeqNum(string2ulong(value)); return true;
         case FIELD_isFlood: pp->setIsFlood(string2long(value)); return true;
         case FIELD_nbHops: pp->setNbHops(string2long(value)); return true;
+        case FIELD_protocolId: pp->setProtocolId((inet::IpProtocolId)string2enum(value, "inet::IpProtocolId")); return true;
         case FIELD_payloadLengthField: pp->setPayloadLengthField(B(string2long(value))); return true;
         default: return false;
     }

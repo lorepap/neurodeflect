@@ -13,10 +13,16 @@ def combine_threshold_datasets(thresholds_str):
     """
     Combine all threshold datasets into a single dataset with deflection_threshold feature
     """
-    # Parse thresholds
-    thresholds = [t.strip() for t in thresholds_str.split(',')]
+    # Parse thresholds (handle both comma and space separated)
+    if ',' in thresholds_str:
+        thresholds = [t.strip() for t in thresholds_str.split(',')]
+    else:
+        thresholds = [t.strip() for t in thresholds_str.split()]
     
     print(f"Combining datasets for thresholds: {thresholds}")
+    
+    # Buffer capacity in bytes (from omnetpp_1G.ini configuration)
+    BUFFER_CAPACITY_BYTES = 50000
     
     # Collect all threshold datasets
     all_datasets = []
@@ -29,13 +35,17 @@ def combine_threshold_datasets(thresholds_str):
             print(f"Loading dataset for threshold {threshold}...")
             df = pd.read_csv(dataset_file)
             
-            # Add deflection_threshold column
-            df['deflection_threshold'] = float(threshold)
+            # Convert byte threshold to percentage of buffer capacity
+            threshold_bytes = float(threshold)
+            threshold_percentage = threshold_bytes / BUFFER_CAPACITY_BYTES
+            
+            # Add deflection_threshold column as percentage
+            df['deflection_threshold'] = threshold_percentage
             
             all_datasets.append(df)
             successful_thresholds.append(threshold)
             
-            print(f"✓ Loaded {len(df):,} rows for threshold {threshold}")
+            print(f"✓ Loaded {len(df):,} rows for threshold {threshold} bytes ({threshold_percentage:.1%} of buffer)")
         else:
             print(f"✗ Dataset file {dataset_file} not found for threshold {threshold}")
     
@@ -70,8 +80,12 @@ def combine_threshold_datasets(thresholds_str):
     
     print(f"\nThreshold distribution:")
     threshold_counts = combined_df['deflection_threshold'].value_counts().sort_index()
-    for threshold, count in threshold_counts.items():
-        print(f"  Threshold {threshold}: {count:,} rows")
+    
+    # Create a mapping from percentage back to bytes for display
+    BUFFER_CAPACITY_BYTES = 50000
+    for threshold_pct, count in threshold_counts.items():
+        threshold_bytes = int(threshold_pct * BUFFER_CAPACITY_BYTES)
+        print(f"  Threshold {threshold_pct:.1f} ({threshold_bytes} bytes, {threshold_pct:.1%}): {count:,} rows")
     
     print(f"\nSample data (first 5 rows):")
     pd.set_option('display.max_columns', None)
@@ -82,8 +96,10 @@ def combine_threshold_datasets(thresholds_str):
 
 if __name__ == "__main__":
     if len(sys.argv) != 2:
-        print("Usage: python3 combine_threshold_datasets.py <comma_separated_thresholds>")
-        print("Example: python3 combine_threshold_datasets.py 0.3,0.5,0.7,0.9")
+        print("Usage: python3 combine_threshold_datasets.py <space_or_comma_separated_thresholds_in_bytes>")
+        print("Example: python3 combine_threshold_datasets.py \"15000 25000 35000 45000 50000\"")
+        print("Example: python3 combine_threshold_datasets.py \"15000,25000,35000,45000,50000\"")
+        print("Note: Byte values will be converted to percentages based on 50,000 byte buffer capacity")
         sys.exit(1)
     
     thresholds_str = sys.argv[1]

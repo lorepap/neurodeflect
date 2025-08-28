@@ -4098,7 +4098,7 @@ unsigned int TcpHeaderDescriptor::getFieldTypeFlags(int field) const
         FD_ISEDITABLE,    // FIELD_window
         FD_ISEDITABLE,    // FIELD_urgentPointer
         FD_ISEDITABLE,    // FIELD_crc
-        0,    // FIELD_crcMode
+        FD_ISEDITABLE,    // FIELD_crcMode
         FD_ISARRAY | FD_ISCOMPOUND | FD_ISPOINTER | FD_ISCOBJECT,    // FIELD_headerOption
         0,    // FIELD_rcvd_time_to_be_echod
         FD_ISEDITABLE,    // FIELD_hop_count_to_be_echoed
@@ -4374,6 +4374,7 @@ bool TcpHeaderDescriptor::setFieldValueAsString(void *object, int field, int i, 
         case FIELD_window: pp->setWindow(string2ulong(value)); return true;
         case FIELD_urgentPointer: pp->setUrgentPointer(string2ulong(value)); return true;
         case FIELD_crc: pp->setCrc(string2ulong(value)); return true;
+        case FIELD_crcMode: pp->setCrcMode((inet::CrcMode)string2enum(value, "inet::CrcMode")); return true;
         case FIELD_hop_count_to_be_echoed: pp->setHop_count_to_be_echoed(string2ulong(value)); return true;
         case FIELD_srcbit: pp->setSrcbit(string2bool(value)); return true;
         case FIELD_bolt_dec: pp->setBolt_dec(string2bool(value)); return true;

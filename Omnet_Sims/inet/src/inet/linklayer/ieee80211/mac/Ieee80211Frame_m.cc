@@ -430,7 +430,7 @@ unsigned int Ieee80211MacTrailerDescriptor::getFieldTypeFlags(int field) const
     }
     static unsigned int fieldTypeFlags[] = {
         FD_ISEDITABLE,    // FIELD_fcs
-        0,    // FIELD_fcsMode
+        FD_ISEDITABLE,    // FIELD_fcsMode
     };
     return (field >= 0 && field < 2) ? fieldTypeFlags[field] : 0;
 }
@@ -562,6 +562,7 @@ bool Ieee80211MacTrailerDescriptor::setFieldValueAsString(void *object, int fiel
     Ieee80211MacTrailer *pp = (Ieee80211MacTrailer *)object; (void)pp;
     switch (field) {
         case FIELD_fcs: pp->setFcs(string2ulong(value)); return true;
+        case FIELD_fcsMode: pp->setFcsMode((inet::FcsMode)string2enum(value, "inet::FcsMode")); return true;
         default: return false;
     }
 }

@@ -1528,7 +1528,7 @@ unsigned int Ieee80211AuthenticationFrameDescriptor::getFieldTypeFlags(int field
     }
     static unsigned int fieldTypeFlags[] = {
         FD_ISEDITABLE,    // FIELD_sequenceNumber
-        0,    // FIELD_statusCode
+        FD_ISEDITABLE,    // FIELD_statusCode
         FD_ISEDITABLE,    // FIELD_isLast
     };
     return (field >= 0 && field < 3) ? fieldTypeFlags[field] : 0;
@@ -1665,6 +1665,7 @@ bool Ieee80211AuthenticationFrameDescriptor::setFieldValueAsString(void *object,
     Ieee80211AuthenticationFrame *pp = (Ieee80211AuthenticationFrame *)object; (void)pp;
     switch (field) {
         case FIELD_sequenceNumber: pp->setSequenceNumber(string2ulong(value)); return true;
+        case FIELD_statusCode: pp->setStatusCode((inet::ieee80211::Ieee80211StatusCode)string2enum(value, "inet::ieee80211::Ieee80211StatusCode")); return true;
         case FIELD_isLast: pp->setIsLast(string2bool(value)); return true;
         default: return false;
     }
@@ -1830,7 +1831,7 @@ unsigned int Ieee80211DeauthenticationFrameDescriptor::getFieldTypeFlags(int fie
         field -= basedesc->getFieldCount();
     }
     static unsigned int fieldTypeFlags[] = {
-        0,    // FIELD_reasonCode
+        FD_ISEDITABLE,    // FIELD_reasonCode
     };
     return (field >= 0 && field < 1) ? fieldTypeFlags[field] : 0;
 }
@@ -1957,6 +1958,7 @@ bool Ieee80211DeauthenticationFrameDescriptor::setFieldValueAsString(void *objec
     }
     Ieee80211DeauthenticationFrame *pp = (Ieee80211DeauthenticationFrame *)object; (void)pp;
     switch (field) {
+        case FIELD_reasonCode: pp->setReasonCode((inet::ieee80211::Ieee80211ReasonCode)string2enum(value, "inet::ieee80211::Ieee80211ReasonCode")); return true;
         default: return false;
     }
 }
@@ -2121,7 +2123,7 @@ unsigned int Ieee80211DisassociationFrameDescriptor::getFieldTypeFlags(int field
         field -= basedesc->getFieldCount();
     }
     static unsigned int fieldTypeFlags[] = {
-        0,    // FIELD_reasonCode
+        FD_ISEDITABLE,    // FIELD_reasonCode
     };
     return (field >= 0 && field < 1) ? fieldTypeFlags[field] : 0;
 }
@@ -2248,6 +2250,7 @@ bool Ieee80211DisassociationFrameDescriptor::setFieldValueAsString(void *object,
     }
     Ieee80211DisassociationFrame *pp = (Ieee80211DisassociationFrame *)object; (void)pp;
     switch (field) {
+        case FIELD_reasonCode: pp->setReasonCode((inet::ieee80211::Ieee80211ReasonCode)string2enum(value, "inet::ieee80211::Ieee80211ReasonCode")); return true;
         default: return false;
     }
 }
@@ -3333,7 +3336,7 @@ unsigned int Ieee80211AssociationResponseFrameDescriptor::getFieldTypeFlags(int 
         field -= basedesc->getFieldCount();
     }
     static unsigned int fieldTypeFlags[] = {
-        0,    // FIELD_statusCode
+        FD_ISEDITABLE,    // FIELD_statusCode
         FD_ISEDITABLE,    // FIELD_aid
         FD_ISCOMPOUND,    // FIELD_supportedRates
     };
@@ -3470,6 +3473,7 @@ bool Ieee80211AssociationResponseFrameDescriptor::setFieldValueAsString(void *ob
     }
     Ieee80211AssociationResponseFrame *pp = (Ieee80211AssociationResponseFrame *)object; (void)pp;
     switch (field) {
+        case FIELD_statusCode: pp->setStatusCode((inet::ieee80211::Ieee80211StatusCode)string2enum(value, "inet::ieee80211::Ieee80211StatusCode")); return true;
         case FIELD_aid: pp->setAid(string2long(value)); return true;
         default: return false;
     }

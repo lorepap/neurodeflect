@@ -418,7 +418,7 @@ unsigned int Icmpv6HeaderDescriptor::getFieldTypeFlags(int field) const
     static unsigned int fieldTypeFlags[] = {
         FD_ISEDITABLE,    // FIELD_type
         FD_ISEDITABLE,    // FIELD_chksum
-        0,    // FIELD_crcMode
+        FD_ISEDITABLE,    // FIELD_crcMode
     };
     return (field >= 0 && field < 3) ? fieldTypeFlags[field] : 0;
 }
@@ -562,6 +562,7 @@ bool Icmpv6HeaderDescriptor::setFieldValueAsString(void *object, int field, int 
     switch (field) {
         case FIELD_type: pp->setType((inet::Icmpv6Type)string2enum(value, "inet::Icmpv6Type")); return true;
         case FIELD_chksum: pp->setChksum(string2long(value)); return true;
+        case FIELD_crcMode: pp->setCrcMode((inet::CrcMode)string2enum(value, "inet::CrcMode")); return true;
         default: return false;
     }
 }

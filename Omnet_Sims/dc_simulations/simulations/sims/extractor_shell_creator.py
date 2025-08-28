@@ -1,14 +1,17 @@
+#!/usr/bin/env python3
+
+import sys
+import hashlib
 from os import listdir
 from os.path import isfile, join
-import sys
 
-RESULT_FILES_DIR = './results/'
+RESULT_FILES_DIR = './'  # Changed to current directory since we're called from within threshold dir
 UNDER_SAME_RACK = 1
 LEAF_SPINE = 2
 TOPOLOGY = LEAF_SPINE
 REP_NUM = 1
 
-OUTPUT_FILE_DIRECTORY = '../extracted_results/'
+OUTPUT_FILE_DIRECTORY = '../../extracted_results/'  # Updated path for threshold subdirectory
 
 if len(sys.argv) > 1:
     add_category = sys.argv[1]
@@ -21,10 +24,17 @@ category = add_category
 
 print("aaa")
 
-
+# Look for .vec files with _rep_ pattern in current directory
 onlyfiles = [f for f in listdir(RESULT_FILES_DIR) if
-             isfile(join(RESULT_FILES_DIR, f)) and f[-4:] == '.vec' and '_0_rep' in f]
-f = open(RESULT_FILES_DIR + 'extractor.sh', 'w')
+             isfile(join(RESULT_FILES_DIR, f)) and f[-4:] == '.vec' and '_rep_' in f]
+
+print(f"Found {len(onlyfiles)} .vec files")
+
+# Write extractor script to correct location
+f = open('../../../extractor.sh', 'w')
+f.write('#!/bin/bash\n')
+f.write('# Auto-generated extractor script\n\n')
+
 for file_name in onlyfiles:
     num_spines = file_name.split('_spines')[0]
     num_aggs = (file_name.split('_aggs')[0]).split('_')[-1]
@@ -48,35 +58,29 @@ for file_name in onlyfiles:
 
 
     for rep_num in range(REP_NUM):
-        without_format_input_file_name = '{}_spines_{}_aggs_{}_servers_{}_burstyapps_{}_mice' \
-                                   '_{}_reqPerBurst_{}_bgintermult_{}_bgfsizemult_{}' \
-                                         '_burstyintermult_{}_burstyfsizemult_{}_ttl' \
-                                   '_{}_rep_{}_rndfwfactor_{}_rndbouncefactor_{}_incastfsize_{}_mrktimer_{}_ordtimer'\
-            .format(num_spines, num_aggs,
-             num_servers_under_each_rack,
-             num_bursty_apps, num_mice_flows_per_server, num_req_per_burst,
-             bg_inter_arrival_multiplier, bg_flow_size_multiplier,
-             bursty_inter_arrival_multiplier, bursty_flow_size_multiplier,
-             ttl, rep_num, random_power_factor, random_power_bounce_factor, incast_flow_size, marking_timer, ordering_timer)
-        vector_file_name = without_format_input_file_name + ".vec"
-        scalar_file_name = without_format_input_file_name + ".sca"
-        index_file_name = without_format_input_file_name + ".vci"
+        # Use the actual filename instead of reconstructing it
+        vector_file_name = file_name
+        scalar_file_name = file_name.replace('.vec', '.sca')
+        index_file_name = file_name.replace('.vec', '.vci')
 
-        without_format_output_file_name = '{}_spines_{}_aggs_{}_servers_{}_burstyapps_{}_mice' \
-                               '_{}_reqPerBurst_{}_bgintermult_' \
-                                      '{}_burstyintermult_{}_ttl' \
-                               '_{}_rndfwfactor_{}_rndbouncefactor_{}_incastfsize_{}_mrktimer_{}_ordtimer_{}_rep'\
-            .format(num_spines, num_aggs,
-             num_servers_under_each_rack,
-             num_bursty_apps, num_mice_flows_per_server, num_req_per_burst,
-             bg_inter_arrival_multiplier,
-             bursty_inter_arrival_multiplier,
-             ttl, random_power_factor, random_power_bounce_factor, incast_flow_size, marking_timer, ordering_timer, rep_num)
+        # Create a shorter output filename to avoid filesystem limits
+        import hashlib
+        
+        # Create a hash from the full filename for uniqueness
+        full_name = file_name.replace('.vec', '')
+        name_hash = hashlib.md5(full_name.encode()).hexdigest()[:8]
+        
+        # Extract key parameters for a readable filename
+        threshold_part = ''
+        if 'threshold_' in full_name:
+            threshold_part = '_' + full_name.split('threshold_')[-1]
+        
+        # Create shorter but meaningful filename
+        short_name = f"sim_{name_hash}{threshold_part}"
+        output_file_name = f'{short_name}_{category}.csv'
 
-        output_file_name = '{}_{}.csv'.format(without_format_output_file_name, category)
-
-        print(without_format_output_file_name)
-        f.write('echo \"{}\"\n'.format(without_format_output_file_name))
+        print(short_name)
+        f.write('echo \"{}\"\n'.format(short_name))
 
         '''
         output_dir_name = 'FLOW_ENDED/'

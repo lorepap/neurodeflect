@@ -361,7 +361,7 @@ unsigned int RtpSenderStatusMessageDescriptor::getFieldTypeFlags(int field) cons
         field -= basedesc->getFieldCount();
     }
     static unsigned int fieldTypeFlags[] = {
-        0,    // FIELD_status
+        FD_ISEDITABLE,    // FIELD_status
         FD_ISEDITABLE,    // FIELD_timeStamp
     };
     return (field >= 0 && field < 2) ? fieldTypeFlags[field] : 0;
@@ -493,6 +493,7 @@ bool RtpSenderStatusMessageDescriptor::setFieldValueAsString(void *object, int f
     }
     RtpSenderStatusMessage *pp = (RtpSenderStatusMessage *)object; (void)pp;
     switch (field) {
+        case FIELD_status: pp->setStatus((inet::rtp::RtpSenderStatus)string2enum(value, "inet::rtp::RtpSenderStatus")); return true;
         case FIELD_timeStamp: pp->setTimeStamp(string2ulong(value)); return true;
         default: return false;
     }

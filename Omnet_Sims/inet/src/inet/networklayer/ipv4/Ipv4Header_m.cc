@@ -1701,7 +1701,7 @@ unsigned int Ipv4OptionTimestampDescriptor::getFieldTypeFlags(int field) const
         field -= basedesc->getFieldCount();
     }
     static unsigned int fieldTypeFlags[] = {
-        0,    // FIELD_flag
+        FD_ISEDITABLE,    // FIELD_flag
         FD_ISEDITABLE,    // FIELD_overflow
         FD_ISEDITABLE,    // FIELD_nextIdx
         FD_ISARRAY,    // FIELD_recordAddress
@@ -1850,6 +1850,7 @@ bool Ipv4OptionTimestampDescriptor::setFieldValueAsString(void *object, int fiel
     }
     Ipv4OptionTimestamp *pp = (Ipv4OptionTimestamp *)object; (void)pp;
     switch (field) {
+        case FIELD_flag: pp->setFlag((inet::TimestampFlag)string2enum(value, "inet::TimestampFlag")); return true;
         case FIELD_overflow: pp->setOverflow(string2long(value)); return true;
         case FIELD_nextIdx: pp->setNextIdx(string2long(value)); return true;
         default: return false;
@@ -3811,9 +3812,9 @@ unsigned int Ipv4HeaderDescriptor::getFieldTypeFlags(int field) const
         FD_ISEDITABLE,    // FIELD_dontFragment
         FD_ISEDITABLE,    // FIELD_fragmentOffset
         FD_ISEDITABLE,    // FIELD_timeToLive
-        0,    // FIELD_protocolId
+        FD_ISEDITABLE,    // FIELD_protocolId
         FD_ISEDITABLE,    // FIELD_crc
-        0,    // FIELD_crcMode
+        FD_ISEDITABLE,    // FIELD_crcMode
         0,    // FIELD_srcAddress
         0,    // FIELD_destAddress
         FD_ISCOMPOUND | FD_ISCOBJECT,    // FIELD_options
@@ -4025,7 +4026,9 @@ bool Ipv4HeaderDescriptor::setFieldValueAsString(void *object, int field, int i,
         case FIELD_dontFragment: pp->setDontFragment(string2bool(value)); return true;
         case FIELD_fragmentOffset: pp->setFragmentOffset(string2ulong(value)); return true;
         case FIELD_timeToLive: pp->setTimeToLive(string2long(value)); return true;
+        case FIELD_protocolId: pp->setProtocolId((inet::IpProtocolId)string2enum(value, "inet::IpProtocolId")); return true;
         case FIELD_crc: pp->setCrc(string2ulong(value)); return true;
+        case FIELD_crcMode: pp->setCrcMode((inet::CrcMode)string2enum(value, "inet::CrcMode")); return true;
         default: return false;
     }
 }

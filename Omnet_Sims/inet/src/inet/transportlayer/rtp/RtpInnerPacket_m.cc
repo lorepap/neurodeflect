@@ -528,7 +528,7 @@ unsigned int RtpInnerPacketDescriptor::getFieldTypeFlags(int field) const
         field -= basedesc->getFieldCount();
     }
     static unsigned int fieldTypeFlags[] = {
-        0,    // FIELD_type
+        FD_ISEDITABLE,    // FIELD_type
         FD_ISEDITABLE,    // FIELD_commonName
         FD_ISEDITABLE,    // FIELD_mtu
         FD_ISEDITABLE,    // FIELD_bandwidth
@@ -715,6 +715,7 @@ bool RtpInnerPacketDescriptor::setFieldValueAsString(void *object, int field, in
     }
     RtpInnerPacket *pp = (RtpInnerPacket *)object; (void)pp;
     switch (field) {
+        case FIELD_type: pp->setType((inet::rtp::RtpInpType)string2enum(value, "inet::rtp::RtpInpType")); return true;
         case FIELD_commonName: pp->setCommonName((value)); return true;
         case FIELD_mtu: pp->setMtu(string2long(value)); return true;
         case FIELD_bandwidth: pp->setBandwidth(string2long(value)); return true;

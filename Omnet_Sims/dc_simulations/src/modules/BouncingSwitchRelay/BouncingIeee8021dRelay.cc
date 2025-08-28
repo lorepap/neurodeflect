@@ -2439,6 +2439,14 @@ void BouncingIeee8021dRelay::dispatch(Packet *packet, InterfaceEntry *ie)
 //    std::cout << simTime() << endl
 
     EV_INFO << "BouncingIeee8021dRelay::dispatch called for " << packet->str() << endl;
+    // One-time startup log to verify runtime guard flags for v2 threshold path
+    static bool guard_flags_logged = false;
+    if (!guard_flags_logged) {
+        guard_flags_logged = true;
+        EV_INFO << "dispatch guard flags => can_deflect=" << can_deflect
+                << ", use_vertigo_prio_queue=" << use_vertigo_prio_queue
+                << ", bounce_randomly_v2=" << bounce_randomly_v2 << endl;
+    }
     bool is_tcp_seg  = false;
     int switchId = getParentModule()->getIndex();
     bool is_tcp_with_payload = false;
@@ -2586,27 +2594,71 @@ void BouncingIeee8021dRelay::dispatch(Packet *packet, InterfaceEntry *ie)
         }
         else if (can_deflect && use_vertigo_prio_queue && bounce_randomly_v2) {
             bolt_evaluate_if_src_packet_should_be_generated(packet, ie, ignore_cc_thresh_for_deflected_packets);
-            if (mac_temp->is_queue_full(packet_length, queue_full_path) ||
-                    (mac_temp->is_queue_over_v2_threshold(packet_length, queue_full_path, packet) &&
-                    mac_temp->is_packet_tag_larger_than_last_packet(queue_full_path, packet))) {
-//                std::cout << simTime() << ": Applying early deflection" << endl;
-                if (bolt_is_packet_src(packet)) {
-                    delete packet;
-                } else {
-                    if (dctcp_mark_deflected_packets_only)
-                        dctcp_mark_ecn_for_deflected_packets(packet);
-                    mark_packet_deflection_tag(packet);
-                    if(is_tcp_with_payload){
-                        emit(actionSeqNumSignal, hashedId);
-                        emit(switchIdActionSignal, switchId);
-                        emit(packetActionSignal, 1);
+                    // Prioritize explicit v2-threshold based deflection first.
+                    // If the v2 threshold condition (and tag ordering) is met,
+                    // perform early deflection based on threshold. Otherwise,
+                    // fall back to queue-full handling (overflow-triggered deflection)
+                    // to preserve previous behavior.
+                    if (mac_temp->is_queue_over_v2_threshold(packet_length, queue_full_path, packet) &&
+                        mac_temp->is_packet_tag_larger_than_last_packet(queue_full_path, packet)) {
+//                std::cout << simTime() << ": Applying early deflection (threshold)" << endl;
+                                // Instrumentation: mark deflection root cause as THRESHOLD
+                                try {
+                                     long occ_bytes = mac_temp->get_queue_occupancy(queue_full_path);
+                                     EV << "DEFLECTION_CAUSE=THRESHOLD switch=" << switch_name
+                                         << " port=" << ie->getIndex()
+                                         << " queuePath=" << queue_full_path
+                                         << " occupancyB=" << occ_bytes << endl;
+                                } catch (...) {
+                                     EV << "DEFLECTION_CAUSE=THRESHOLD switch=" << switch_name
+                                         << " port=" << ie->getIndex()
+                                         << " queuePath=" << queue_full_path << endl;
+                                }
+                        if (bolt_is_packet_src(packet)) {
+                            delete packet;
+                        } else {
+                            if (dctcp_mark_deflected_packets_only)
+                                dctcp_mark_ecn_for_deflected_packets(packet);
+                            mark_packet_deflection_tag(packet);
+                            if(is_tcp_with_payload){
+                                emit(actionSeqNumSignal, hashedId);
+                                emit(switchIdActionSignal, switchId);
+                                emit(packetActionSignal, 1);
+                            }
+                            apply_early_deflection(packet, false, ie);
+                        }
+                        return;
+                    } else if (mac_temp->is_queue_full(packet_length, queue_full_path)) {
+//                std::cout << simTime() << ": Applying early deflection (overflow)" << endl;
+                                // Instrumentation: mark deflection root cause as OVERFLOW
+                                try {
+                                     long occ_bytes = mac_temp->get_queue_occupancy(queue_full_path);
+                                     EV << "DEFLECTION_CAUSE=OVERFLOW switch=" << switch_name
+                                         << " port=" << ie->getIndex()
+                                         << " queuePath=" << queue_full_path
+                                         << " occupancyB=" << occ_bytes << endl;
+                                } catch (...) {
+                                     EV << "DEFLECTION_CAUSE=OVERFLOW switch=" << switch_name
+                                         << " port=" << ie->getIndex()
+                                         << " queuePath=" << queue_full_path << endl;
+                                }
+                        if (bolt_is_packet_src(packet)) {
+                            delete packet;
+                        } else {
+                            if (dctcp_mark_deflected_packets_only)
+                                dctcp_mark_ecn_for_deflected_packets(packet);
+                            mark_packet_deflection_tag(packet);
+                            if(is_tcp_with_payload){
+                                emit(actionSeqNumSignal, hashedId);
+                                emit(switchIdActionSignal, switchId);
+                                emit(packetActionSignal, 1);
+                            }
+                            apply_early_deflection(packet, false, ie);
+                        }
+                        return;
+                    } else {
+                        ie2 = ie;
                     }
-                    apply_early_deflection(packet, false, ie);
-                }
-                return;
-            } else {
-                ie2 = ie;
-            }
         } else if (can_deflect && mac_temp->is_queue_full(packet_length, queue_full_path)) {
             if (bounce_randomly) {
                 if (bolt_is_packet_src(packet)) {
@@ -2615,6 +2667,10 @@ void BouncingIeee8021dRelay::dispatch(Packet *packet, InterfaceEntry *ie)
                 } else {
                     // Using DIBS --> Randomly bouncing to a not full switch port
                     // Bolt: ignoring cc_thresh for deflected packets.
+                          // Instrumentation: overflow-driven deflection via RANDOM (DIBS)
+                          EV << "DEFLECTION_CAUSE=OVERFLOW_METHOD=RANDOM switch=" << switch_name
+                              << " port=" << ie->getIndex()
+                              << " queuePath=" << queue_full_path << endl;
                     bolt_evaluate_if_src_packet_should_be_generated(packet, ie, ignore_cc_thresh_for_deflected_packets);
                     if (dctcp_mark_deflected_packets_only)
                         dctcp_mark_ecn_for_deflected_packets(packet);
@@ -2627,6 +2683,10 @@ void BouncingIeee8021dRelay::dispatch(Packet *packet, InterfaceEntry *ie)
                     ie2 = ie;
                 } else {
                     // Bolt: ignoring cc_thresh for deflected packets.
+                          // Instrumentation: overflow-driven deflection via NAIVE
+                          EV << "DEFLECTION_CAUSE=OVERFLOW_METHOD=NAIVE switch=" << switch_name
+                              << " port=" << ie->getIndex()
+                              << " queuePath=" << queue_full_path << endl;
                     bolt_evaluate_if_src_packet_should_be_generated(packet, ie, ignore_cc_thresh_for_deflected_packets);
                     if (dctcp_mark_deflected_packets_only)
                         dctcp_mark_ecn_for_deflected_packets(packet);
@@ -2635,6 +2695,10 @@ void BouncingIeee8021dRelay::dispatch(Packet *packet, InterfaceEntry *ie)
                 }
             } else if (bounce_on_same_path){
                 // Using main version of Vertigo
+                     // Instrumentation: overflow-driven deflection via SAME_PATH
+                     EV << "DEFLECTION_CAUSE=OVERFLOW_METHOD=SAME_PATH switch=" << switch_name
+                         << " port=" << ie->getIndex()
+                         << " queuePath=" << queue_full_path << endl;
                 ie2 = find_interface_to_bounce_on_the_same_path(packet, ie);
             } else if (bounce_randomly_v2) {
                 if (bolt_is_packet_src(packet)) {
@@ -2644,6 +2708,10 @@ void BouncingIeee8021dRelay::dispatch(Packet *packet, InterfaceEntry *ie)
                     // Bounce the packet to source using power of n choices.
                     // Not considering ports towards servers
                     EV << "Frames src is " << frame->getSrc() << " and frame's dst is " << frame->getDest() << endl;
+                          // Instrumentation: overflow-driven deflection via V2
+                          EV << "DEFLECTION_CAUSE=OVERFLOW_METHOD=V2 switch=" << switch_name
+                              << " port=" << ie->getIndex()
+                              << " queuePath=" << queue_full_path << endl;
                     if (src_enabled_packet_type == BOLT_VERTIGO_ORG_PKT ||
                             src_enabled_packet_type == BOLT_VERTIGO_ORG_DEF_PKT) {
                         // Bolt: ignoring cc_thresh for deflected packets.

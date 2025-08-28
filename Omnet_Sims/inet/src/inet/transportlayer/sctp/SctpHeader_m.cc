@@ -436,7 +436,7 @@ unsigned int SctpHeaderDescriptor::getFieldTypeFlags(int field) const
         FD_ISEDITABLE,    // FIELD_vTag
         FD_ISEDITABLE,    // FIELD_checksumOk
         FD_ISEDITABLE,    // FIELD_crc
-        0,    // FIELD_crcMode
+        FD_ISEDITABLE,    // FIELD_crcMode
         FD_ISEDITABLE,    // FIELD_headerLength
         FD_ISARRAY | FD_ISCOMPOUND | FD_ISPOINTER | FD_ISCOBJECT | FD_ISCOWNEDOBJECT,    // FIELD_sctpChunks
     };
@@ -600,6 +600,7 @@ bool SctpHeaderDescriptor::setFieldValueAsString(void *object, int field, int i,
         case FIELD_vTag: pp->setVTag(string2ulong(value)); return true;
         case FIELD_checksumOk: pp->setChecksumOk(string2bool(value)); return true;
         case FIELD_crc: pp->setCrc(string2ulong(value)); return true;
+        case FIELD_crcMode: pp->setCrcMode((inet::CrcMode)string2enum(value, "inet::CrcMode")); return true;
         case FIELD_headerLength: pp->setHeaderLength(string2ulong(value)); return true;
         default: return false;
     }

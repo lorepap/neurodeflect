@@ -861,7 +861,7 @@ unsigned int Ipv6HeaderDescriptor::getFieldTypeFlags(int field) const
         FD_ISEDITABLE,    // FIELD_explicitCongestionNotification
         FD_ISEDITABLE,    // FIELD_flowLabel
         FD_ISEDITABLE,    // FIELD_hopLimit
-        0,    // FIELD_protocolId
+        FD_ISEDITABLE,    // FIELD_protocolId
         FD_ISARRAY | FD_ISCOMPOUND | FD_ISPOINTER | FD_ISCOBJECT,    // FIELD_extensionHeader
     };
     return (field >= 0 && field < 9) ? fieldTypeFlags[field] : 0;
@@ -1035,6 +1035,7 @@ bool Ipv6HeaderDescriptor::setFieldValueAsString(void *object, int field, int i,
         case FIELD_explicitCongestionNotification: pp->setExplicitCongestionNotification(string2long(value)); return true;
         case FIELD_flowLabel: pp->setFlowLabel(string2ulong(value)); return true;
         case FIELD_hopLimit: pp->setHopLimit(string2long(value)); return true;
+        case FIELD_protocolId: pp->setProtocolId((inet::IpProtocolId)string2enum(value, "inet::IpProtocolId")); return true;
         default: return false;
     }
 }

@@ -2743,7 +2743,7 @@ unsigned int Ieee80211Prim_DeauthenticateRequestDescriptor::getFieldTypeFlags(in
     }
     static unsigned int fieldTypeFlags[] = {
         0,    // FIELD_address
-        0,    // FIELD_reasonCode
+        FD_ISEDITABLE,    // FIELD_reasonCode
     };
     return (field >= 0 && field < 2) ? fieldTypeFlags[field] : 0;
 }
@@ -2874,6 +2874,7 @@ bool Ieee80211Prim_DeauthenticateRequestDescriptor::setFieldValueAsString(void *
     }
     Ieee80211Prim_DeauthenticateRequest *pp = (Ieee80211Prim_DeauthenticateRequest *)object; (void)pp;
     switch (field) {
+        case FIELD_reasonCode: pp->setReasonCode((inet::ieee80211::Ieee80211ReasonCode)string2enum(value, "inet::ieee80211::Ieee80211ReasonCode")); return true;
         default: return false;
     }
 }
@@ -4140,7 +4141,7 @@ unsigned int Ieee80211Prim_DisassociateRequestDescriptor::getFieldTypeFlags(int 
     }
     static unsigned int fieldTypeFlags[] = {
         0,    // FIELD_address
-        0,    // FIELD_reasonCode
+        FD_ISEDITABLE,    // FIELD_reasonCode
     };
     return (field >= 0 && field < 2) ? fieldTypeFlags[field] : 0;
 }
@@ -4271,6 +4272,7 @@ bool Ieee80211Prim_DisassociateRequestDescriptor::setFieldValueAsString(void *ob
     }
     Ieee80211Prim_DisassociateRequest *pp = (Ieee80211Prim_DisassociateRequest *)object; (void)pp;
     switch (field) {
+        case FIELD_reasonCode: pp->setReasonCode((inet::ieee80211::Ieee80211ReasonCode)string2enum(value, "inet::ieee80211::Ieee80211ReasonCode")); return true;
         default: return false;
     }
 }

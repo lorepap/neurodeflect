@@ -462,7 +462,7 @@ unsigned int ProbabilisticBroadcastHeaderDescriptor::getFieldTypeFlags(int field
         0,    // FIELD_destAddr
         FD_ISEDITABLE,    // FIELD_id
         FD_ISEDITABLE,    // FIELD_nbHops
-        0,    // FIELD_protocolId
+        FD_ISEDITABLE,    // FIELD_protocolId
         0,    // FIELD_appTtl
         0,    // FIELD_initialSrcAddr
         0,    // FIELD_finalDestAddr
@@ -627,6 +627,7 @@ bool ProbabilisticBroadcastHeaderDescriptor::setFieldValueAsString(void *object,
     switch (field) {
         case FIELD_id: pp->setId(string2long(value)); return true;
         case FIELD_nbHops: pp->setNbHops(string2long(value)); return true;
+        case FIELD_protocolId: pp->setProtocolId((inet::IpProtocolId)string2enum(value, "inet::IpProtocolId")); return true;
         case FIELD_payloadLengthField: pp->setPayloadLengthField(B(string2long(value))); return true;
         default: return false;
     }

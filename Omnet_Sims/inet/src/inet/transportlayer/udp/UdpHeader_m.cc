@@ -404,7 +404,7 @@ unsigned int UdpHeaderDescriptor::getFieldTypeFlags(int field) const
         FD_ISEDITABLE,    // FIELD_destPort
         FD_ISEDITABLE,    // FIELD_totalLengthField
         FD_ISEDITABLE,    // FIELD_crc
-        0,    // FIELD_crcMode
+        FD_ISEDITABLE,    // FIELD_crcMode
     };
     return (field >= 0 && field < 5) ? fieldTypeFlags[field] : 0;
 }
@@ -551,6 +551,7 @@ bool UdpHeaderDescriptor::setFieldValueAsString(void *object, int field, int i, 
         case FIELD_destPort: pp->setDestPort(string2ulong(value)); return true;
         case FIELD_totalLengthField: pp->setTotalLengthField(B(string2long(value))); return true;
         case FIELD_crc: pp->setCrc(string2ulong(value)); return true;
+        case FIELD_crcMode: pp->setCrcMode((inet::CrcMode)string2enum(value, "inet::CrcMode")); return true;
         default: return false;
     }
 }

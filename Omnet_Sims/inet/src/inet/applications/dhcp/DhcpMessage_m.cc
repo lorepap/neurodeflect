@@ -826,9 +826,9 @@ unsigned int DhcpOptionsDescriptor::getFieldTypeFlags(int field) const
         field -= basedesc->getFieldCount();
     }
     static unsigned int fieldTypeFlags[] = {
-        0,    // FIELD_messageType
+        FD_ISEDITABLE,    // FIELD_messageType
         FD_ISEDITABLE,    // FIELD_hostName
-        FD_ISARRAY,    // FIELD_parameterRequestList
+        FD_ISARRAY | FD_ISEDITABLE,    // FIELD_parameterRequestList
         0,    // FIELD_clientIdentifier
         0,    // FIELD_requestedIp
         0,    // FIELD_subnetMask
@@ -1024,7 +1024,9 @@ bool DhcpOptionsDescriptor::setFieldValueAsString(void *object, int field, int i
     }
     DhcpOptions *pp = (DhcpOptions *)object; (void)pp;
     switch (field) {
+        case FIELD_messageType: pp->setMessageType((inet::DhcpMessageType)string2enum(value, "inet::DhcpMessageType")); return true;
         case FIELD_hostName: pp->setHostName((value)); return true;
+        case FIELD_parameterRequestList: pp->setParameterRequestList(i,(inet::DhcpOptionCode)string2enum(value, "inet::DhcpOptionCode")); return true;
         default: return false;
     }
 }
@@ -1404,7 +1406,7 @@ unsigned int DhcpMessageDescriptor::getFieldTypeFlags(int field) const
         field -= basedesc->getFieldCount();
     }
     static unsigned int fieldTypeFlags[] = {
-        0,    // FIELD_op
+        FD_ISEDITABLE,    // FIELD_op
         FD_ISEDITABLE,    // FIELD_htype
         FD_ISEDITABLE,    // FIELD_hlen
         FD_ISEDITABLE,    // FIELD_hops
@@ -1601,6 +1603,7 @@ bool DhcpMessageDescriptor::setFieldValueAsString(void *object, int field, int i
     }
     DhcpMessage *pp = (DhcpMessage *)object; (void)pp;
     switch (field) {
+        case FIELD_op: pp->setOp((inet::DhcpOpcode)string2enum(value, "inet::DhcpOpcode")); return true;
         case FIELD_htype: pp->setHtype(string2long(value)); return true;
         case FIELD_hlen: pp->setHlen(string2long(value)); return true;
         case FIELD_hops: pp->setHops(string2long(value)); return true;
