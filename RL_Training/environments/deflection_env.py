@@ -41,27 +41,51 @@ class DatacenterDeflectionEnv(gym.Env):
         self.dataset = pd.read_csv(dataset_path)
         print(f"Loaded dataset with {len(self.dataset)} records")
         
-        # Define optimal real-time features for line-rate inference
-        # Based on discriminative power analysis: threshold_pressure (5.84x), ttl_priority (5.46x), queue_utilization (4.51x)
+        # Define optimal real-time features for autonomous deflection decisions
+        # NO threshold or switch type - model must learn optimal deflection autonomously
         
         # Extract base features
         feature_data = []
         self.feature_names = []
         
-        # 1. Queue utilization (most fundamental congestion indicator)
+        # 1. Queue utilization (fundamental congestion indicator)
         queue_utilization = self.dataset['occupancy'] / (self.dataset['capacity'] + 1e-8)
         feature_data.append(queue_utilization.values)
         self.feature_names.append('queue_utilization')
         
-        # 2. Threshold pressure (policy-aware feature)
-        threshold_pressure = queue_utilization / (self.dataset['deflection_threshold'] + 1e-8)
-        feature_data.append(threshold_pressure.values)
-        self.feature_names.append('threshold_pressure')
+        # 2. Total network utilization (global congestion context)
+        total_utilization = self.dataset['total_occupancy'] / (self.dataset['total_capacity'] + 1e-8)
+        feature_data.append(total_utilization.values)
+        self.feature_names.append('total_utilization')
         
         # 3. TTL priority (packet urgency - higher value = more hops traveled)
         ttl_priority = (250 - self.dataset['ttl']) / 250.0
         feature_data.append(ttl_priority.values)
         self.feature_names.append('ttl_priority')
+        
+        # 4. Out-of-order indicator (deflection cost - OOO packets hurt performance)
+        ooo_indicator = self.dataset['ooo'].values.astype(float)
+        feature_data.append(ooo_indicator)
+        self.feature_names.append('ooo_indicator')
+        
+        # 5. Packet delay (one-way delay: end_time - start_time)
+        packet_delay = (self.dataset['end_time'] - self.dataset['start_time']).values
+        feature_data.append(packet_delay)
+        self.feature_names.append('packet_delay')
+        
+        # 6. FCT contribution (how this packet's delay affects flow completion time)
+        # Compute how much this packet's delay contributes to overall FCT (vectorized)
+        packet_delays = (self.dataset['end_time'] - self.dataset['start_time']).values
+        flow_fcts = self.dataset['FCT'].values
+        
+        # FCT contribution: packet delay as fraction of total flow completion time
+        # Avoid division by zero
+        fct_contribution = np.divide(packet_delays, flow_fcts, 
+                                   out=np.zeros_like(packet_delays), 
+                                   where=flow_fcts!=0)
+        
+        feature_data.append(fct_contribution)
+        self.feature_names.append('fct_contribution')
         
         # Combine features into state matrix
         self.features = np.column_stack(feature_data)
@@ -193,42 +217,54 @@ class DatacenterDeflectionEnv(gym.Env):
     
     def _compute_reward(self, state: np.ndarray, action: int, next_state: np.ndarray) -> float:
         """
-        Compute reward based on the current state, action, and next state.
-        This implements the reward engineering for network performance optimization.
+        Packet-level reward for offline RL training.
+        Focuses on packet characteristics only, avoiding misleading network state comparisons.
         """
         reward = 0.0
         
-        # Since our states are normalized, we need to be careful with reward calculation
-        # Let's use a simpler reward function for normalized states
+        # Extract current state features
+        queue_util = state[0]         # Queue utilization
+        total_util = state[1]         # Total network utilization  
+        ttl_priority = state[2]       # TTL priority
+        ooo_indicator = state[3]      # Out-of-order indicator
+        packet_delay = state[4]       # Packet one-way delay
+        fct_contribution = state[5]   # FCT contribution factor
         
-        # 1. Base reward for action taken
-        if action == 0:  # Forward normally
-            reward += self.reward_config['baseline_reward']
-        elif action == 1:  # Deflect packet
-            reward += self.reward_config['deflection_cost']
-        else:  # Drop or other
-            reward += self.reward_config['drop_penalty']
+        if action == 0:  # FORWARD
+            reward = 0.1  # Normal operation baseline
+            
+        elif action == 1:  # DEFLECT  
+            reward = -0.1  # Deflection is inherently costly (latency)
+            
+            # REMOVED: Network state improvement bonus - misleading in offline setting
+            # In offline RL, next_state is from pre-recorded data, not caused by our action
         
-        # 2. Simple state-based reward (since states are normalized)
-        # Penalize extreme values (both positive and negative since normalized)
-        state_penalty = -0.01 * np.sum(np.abs(state))
-        reward += state_penalty
+        # PACKET-LEVEL PERFORMANCE PENALTIES (valid in offline setting):
+        # These penalties are based on packet characteristics, not network state transitions
         
-        # 3. Reward for state improvement (if next state has lower absolute values)
-        if len(state) == len(next_state):
-            state_improvement = np.sum(np.abs(state)) - np.sum(np.abs(next_state))
-            reward += 0.05 * state_improvement
+        # 1. OUT-OF-ORDER PENALTY: Always penalize OOO packets
+        if ooo_indicator > 0:  # This packet is out-of-order
+            ooo_penalty = -0.2 * ooo_indicator
+            reward += ooo_penalty
         
-        # 4. Threshold-based reward (encourage lower thresholds which should be more efficient)
-        if len(state) > 4:  # threshold is at index 4
-            # Since normalized, lower values are better
-            threshold_reward = -0.02 * state[4]  # Lower normalized threshold gets positive reward
-            reward += threshold_reward
+        # 2. PACKET DELAY PENALTY: Penalize high delay packets
+        # Normalized delay penalty (assuming delays are normalized)
+        if packet_delay > 0:  # High delay is bad for performance
+            delay_penalty = -0.1 * abs(packet_delay)  # Penalty proportional to delay
+            reward += delay_penalty
         
-        # Clip reward to reasonable range
-        reward = np.clip(reward, -10.0, 10.0)
+        # 3. FCT CONTRIBUTION PENALTY: Penalize actions that hurt flow completion
+        # Higher FCT contribution means this packet is more critical to flow completion
+        if fct_contribution > 0:
+            # If deflecting a critical packet (high FCT impact), bigger penalty
+            if action == 1:  # Deflection
+                fct_penalty = -0.15 * fct_contribution  # Critical packets shouldn't be deflected
+                reward += fct_penalty
+            else:  # Forwarding critical packets is good
+                fct_bonus = 0.05 * fct_contribution
+                reward += fct_bonus
         
-        return reward
+        return np.clip(reward, -1.0, 1.0)
     
     def reset(self, seed: Optional[int] = None, options: Optional[Dict] = None) -> Tuple[np.ndarray, Dict]:
         """Reset environment for a new episode."""

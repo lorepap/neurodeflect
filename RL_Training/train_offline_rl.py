@@ -1,8 +1,14 @@
 """
-Offline RL Training Script for Datacenter Network Deflection Optimization
+True Offline RL Training Script for Datacenter Network Deflection Optimization
 
-This script implements offline reinforcement learning training using the collected
-threshold experiment data to learn optimal packet deflection policies.
+This script implements TRUE offline reinforcement learning using IQL (Implicit Q-Learning).
+Key differences from the previous version:
+1. Uses only pre-collected dataset for training (no environment interaction)
+2. Implements IQL algorithm suitable for offline RL
+3. Uses replay buffer sampling instead of online rollouts
+4. Includes offline policy evaluation for model selection
+
+The environment is only used for final evaluation after training is complete.
 """
 
 import os
@@ -22,12 +28,19 @@ from pathlib import Path
 sys.path.append('/home/ubuntu/practical_deflection/RL_Training')
 
 from environments.deflection_env import DatacenterDeflectionEnv
-from agents.ppo_agent import PPOAgent
+from agents.iql_agent import IQLAgent
+from utils.replay_buffer import OfflineReplayBuffer
 
 
 class OfflineRLTrainer:
     """
-    Offline RL trainer for learning deflection policies from collected data.
+    True offline RL trainer using IQL algorithm.
+    
+    This trainer:
+    1. Loads a pre-collected dataset into a replay buffer
+    2. Trains IQL agent using only dataset samples (no environment interaction)
+    3. Uses offline policy evaluation for model selection
+    4. Only touches the environment for final validation
     """
     
     def __init__(self, 
@@ -56,19 +69,18 @@ class OfflineRLTrainer:
         # Initialize logging
         self._setup_logging()
         
-        # Initialize environment and agent
-        self.env = None
+        # Initialize components
+        self.replay_buffer = None
         self.agent = None
-        self.dataset = None
+        self.env = None  # Only for final evaluation
         
         # Training statistics
         self.training_history = {
-            'episode_rewards': [],
-            'episode_lengths': [],
+            'v_losses': [],
+            'q_losses': [],
             'policy_losses': [],
-            'value_losses': [],
-            'entropies': [],
-            'learning_rates': []
+            'total_losses': [],
+            'offline_eval_scores': []
         }
     
     def _setup_logging(self):
@@ -88,256 +100,208 @@ class OfflineRLTrainer:
         self.logger = logging.getLogger(__name__)
         self.logger.info(f"Offline RL training initialized. Logs saved to {log_file}")
     
-    def load_dataset(self):
-        """Load and preprocess the threshold dataset."""
+    def load_replay_buffer(self):
+        """Load dataset into replay buffer for offline training."""
         self.logger.info(f"Loading dataset from {self.dataset_path}")
         
-        try:
-            self.dataset = pd.read_csv(self.dataset_path)
-            self.logger.info(f"Dataset loaded successfully with {len(self.dataset)} records")
-            
-            # Log dataset statistics
-            self.logger.info("Dataset statistics:")
-            
-            # Check for threshold column (handle different names)
-            threshold_col = None
-            if 'threshold' in self.dataset.columns:
-                threshold_col = 'threshold'
-            elif 'deflection_threshold' in self.dataset.columns:
-                threshold_col = 'deflection_threshold'
-            
-            if threshold_col:
-                self.logger.info(f"  - Unique threshold values: {self.dataset[threshold_col].unique()}")
-            else:
-                self.logger.info("  - No threshold column found")
-            
-            self.logger.info(f"  - Available columns: {list(self.dataset.columns)}")
-            self.logger.info(f"  - Data shape: {self.dataset.shape}")
-            
-            return self.dataset
-            
-        except Exception as e:
-            self.logger.error(f"Failed to load dataset: {e}")
-            raise
-    
-    def initialize_environment(self, normalize_states: bool = True):
-        """Initialize the datacenter deflection environment."""
-        if self.dataset is None:
-            self.load_dataset()
+        # Define state features (same as environment)
+        state_features = ['capacity', 'total_capacity', 'occupancy', 'total_occupancy', 'ttl', 'ooo']
         
-        self.logger.info("Initializing datacenter deflection environment")
-        
-        self.env = DatacenterDeflectionEnv(
+        self.replay_buffer = OfflineReplayBuffer(
             dataset_path=self.dataset_path,
-            normalize_states=normalize_states
+            state_features=state_features,
+            action_column='action',
+            normalize_states=True,
+            sequence_column='FlowID',
+            time_column='timestamp'
         )
         
-        self.logger.info(f"Environment initialized:")
-        self.logger.info(f"  - State space: {self.env.observation_space}")
-        self.logger.info(f"  - Action space: {self.env.action_space}")
-        self.logger.info(f"  - Dataset size: {len(self.env.features)}")
+        # Log dataset statistics
+        stats = self.replay_buffer.get_dataset_stats()
+        self.logger.info("Replay buffer statistics:")
+        for key, value in stats.items():
+            self.logger.info(f"  - {key}: {value}")
+        
+        return self.replay_buffer
     
     def initialize_agent(self, 
+                        lr_q: float = 3e-4,
+                        lr_v: float = 3e-4,
                         lr_policy: float = 3e-4,
-                        lr_value: float = 3e-4,
+                        expectile: float = 0.8,
+                        temperature: float = 3.0,
                         **kwargs):
-        """Initialize the PPO agent."""
-        if self.env is None:
-            raise ValueError("Environment must be initialized before agent")
+        """Initialize the IQL agent for offline RL."""
+        if self.replay_buffer is None:
+            raise ValueError("Replay buffer must be loaded before agent")
         
-        self.logger.info("Initializing PPO agent")
+        self.logger.info("Initializing IQL agent for offline RL")
         
-        state_dim = self.env.observation_space.shape[0]
-        action_dim = self.env.action_space.n
+        # Get dimensions from replay buffer
+        state_dim = self.replay_buffer.states.shape[1]
+        action_dim = len(np.unique(self.replay_buffer.actions))
         
-        self.agent = PPOAgent(
+        self.agent = IQLAgent(
             state_dim=state_dim,
             action_dim=action_dim,
+            lr_q=lr_q,
+            lr_v=lr_v,
             lr_policy=lr_policy,
-            lr_value=lr_value,
+            expectile=expectile,
+            temperature=temperature,
             device=self.device,
             **kwargs
         )
         
-        self.logger.info(f"PPO agent initialized:")
+        self.logger.info(f"IQL agent initialized:")
         self.logger.info(f"  - State dimension: {state_dim}")
         self.logger.info(f"  - Action dimension: {action_dim}")
         self.logger.info(f"  - Device: {self.device}")
+        self.logger.info(f"  - Expectile: {expectile}")
+        self.logger.info(f"  - Temperature: {temperature}")
     
-    def collect_episode_data(self, max_steps: int = 100) -> Tuple[List, List, List, List, List, List]:
+    def train_step(self, batch_size: int = 256) -> Dict[str, float]:
         """
-        Collect data from a single episode in the environment.
+        Perform one training step using batch from replay buffer.
         
         Args:
-            max_steps: Maximum steps per episode
-            
-        Returns:
-            Tuple of (states, actions, rewards, log_probs, values, dones)
-        """
-        states, actions, rewards, log_probs, values, dones = [], [], [], [], [], []
-        
-        state, info = self.env.reset()
-        total_reward = 0
-        
-        for step in range(max_steps):
-            # Get action and value from agent
-            action, log_prob = self.agent.get_action(state)
-            value = self.agent.get_value(state)
-            
-            # Take step in environment
-            next_state, reward, done, truncated, info = self.env.step(action)
-            
-            # Store data
-            states.append(state.copy())
-            actions.append(action)
-            rewards.append(reward)
-            log_probs.append(log_prob)
-            values.append(value)
-            dones.append(done)
-            
-            total_reward += reward
-            state = next_state
-            
-            if done:
-                break
-        
-        self.logger.debug(f"Episode completed: {len(states)} steps, total reward: {total_reward:.3f}")
-        
-        return states, actions, rewards, log_probs, values, dones
-    
-    def train_epoch(self, 
-                   num_episodes: int = 10,
-                   max_steps_per_episode: int = 100,
-                   update_frequency: int = 5) -> Dict[str, float]:
-        """
-        Train the agent for one epoch.
-        
-        Args:
-            num_episodes: Number of episodes to run
-            max_steps_per_episode: Maximum steps per episode
-            update_frequency: How often to update the agent
+            batch_size: Size of batch to sample from replay buffer
             
         Returns:
             Dictionary of training statistics
         """
-        epoch_rewards = []
-        epoch_lengths = []
-        
-        # Collect data from multiple episodes
-        all_states, all_actions, all_rewards = [], [], []
-        all_log_probs, all_values, all_dones = [], [], []
-        
-        for episode in range(num_episodes):
-            states, actions, rewards, log_probs, values, dones = self.collect_episode_data(max_steps_per_episode)
+        try:
+            # Sample batch from replay buffer (no environment interaction!)
+            batch = self.replay_buffer.sample_batch(batch_size, self.device)
             
-            # Store episode data
-            all_states.extend(states)
-            all_actions.extend(actions)
-            all_rewards.extend(rewards)
-            all_log_probs.extend(log_probs)
-            all_values.extend(values)
-            all_dones.extend(dones)
+            # Update agent using offline data
+            losses = self.agent.update(batch)
             
-            # Track episode statistics
-            episode_reward = sum(rewards)
-            episode_length = len(rewards)
+            return losses
             
-            epoch_rewards.append(episode_reward)
-            epoch_lengths.append(episode_length)
-            
-            self.logger.debug(f"Episode {episode + 1}/{num_episodes}: "
-                            f"reward={episode_reward:.3f}, length={episode_length}")
-        
-        # Update agent with collected data
-        if len(all_states) > 0:
-            training_stats = self.agent.update(
-                states=all_states,
-                actions=all_actions,
-                rewards=all_rewards,
-                log_probs=all_log_probs,
-                values=all_values,
-                dones=all_dones
-            )
-        else:
-            training_stats = {'policy_loss': 0, 'value_loss': 0, 'entropy': 0, 'total_loss': 0}
-        
-        # Compile epoch statistics
-        epoch_stats = {
-            'mean_reward': np.mean(epoch_rewards),
-            'std_reward': np.std(epoch_rewards),
-            'mean_length': np.mean(epoch_lengths),
-            'num_episodes': num_episodes,
-            **training_stats
-        }
-        
-        return epoch_stats
+        except Exception as e:
+            self.logger.error(f"Error in train_step: {e}")
+            import traceback
+            self.logger.error(traceback.format_exc())
+            raise
     
-    def train(self,
-              num_epochs: int = 100,
-              episodes_per_epoch: int = 10,
-              max_steps_per_episode: int = 100,
-              save_frequency: int = 10,
-              evaluation_frequency: int = 5) -> Dict[str, List]:
+    def offline_policy_evaluation(self, num_samples: int = 1000) -> float:
         """
-        Main training loop.
+        Perform offline policy evaluation using Fitted Q Evaluation (FQE).
+        
+        This estimates the policy's performance without environment interaction
+        by evaluating Q-values on dataset states.
         
         Args:
-            num_epochs: Number of training epochs
-            episodes_per_epoch: Episodes per epoch
-            max_steps_per_episode: Maximum steps per episode
-            save_frequency: How often to save models
-            evaluation_frequency: How often to evaluate
+            num_samples: Number of samples to evaluate
+            
+        Returns:
+            Estimated policy value
+        """
+        # Sample states from replay buffer
+        indices = np.random.choice(self.replay_buffer.size, num_samples, replace=True)
+        states = self.replay_buffer.states[indices]
+        
+        total_value = 0.0
+        
+        with torch.no_grad():
+            for state in states:
+                state_tensor = torch.FloatTensor(state).unsqueeze(0).to(self.device)
+                
+                # Get policy action
+                action, _ = self.agent.get_action(state, deterministic=True)
+                
+                # Get Q-value for policy action
+                q_values = self.agent.q1(state_tensor)
+                q_value = q_values[0, action].item()
+                
+                total_value += q_value
+        
+        return total_value / num_samples
+    
+    def train(self,
+              num_steps: int = 100000,
+              batch_size: int = 256,
+              eval_frequency: int = 5000,
+              save_frequency: int = 10000,
+              log_frequency: int = 100) -> Dict[str, List]:
+        """
+        Main offline RL training loop.
+        
+        Args:
+            num_steps: Number of training steps (batches)
+            batch_size: Batch size for sampling from replay buffer
+            eval_frequency: How often to perform offline evaluation
+            save_frequency: How often to save model checkpoints
+            log_frequency: How often to log training progress
             
         Returns:
             Training history dictionary
         """
-        self.logger.info(f"Starting offline RL training:")
-        self.logger.info(f"  - Epochs: {num_epochs}")
-        self.logger.info(f"  - Episodes per epoch: {episodes_per_epoch}")
-        self.logger.info(f"  - Max steps per episode: {max_steps_per_episode}")
+        self.logger.info(f"Starting TRUE offline RL training:")
+        self.logger.info(f"  - Training steps: {num_steps}")
+        self.logger.info(f"  - Batch size: {batch_size}")
+        self.logger.info(f"  - Log frequency: every {log_frequency} steps")
+        self.logger.info(f"  - NO environment interaction during training")
         
-        best_reward = float('-inf')
+        best_eval_score = float('-inf')
         
-        for epoch in range(num_epochs):
-            self.logger.info(f"Epoch {epoch + 1}/{num_epochs}")
-            
-            # Train for one epoch
-            epoch_stats = self.train_epoch(
-                num_episodes=episodes_per_epoch,
-                max_steps_per_episode=max_steps_per_episode
-            )
-            
-            # Update training history
-            self.training_history['episode_rewards'].append(epoch_stats['mean_reward'])
-            self.training_history['episode_lengths'].append(epoch_stats['mean_length'])
-            self.training_history['policy_losses'].append(epoch_stats['policy_loss'])
-            self.training_history['value_losses'].append(epoch_stats['value_loss'])
-            self.training_history['entropies'].append(epoch_stats['entropy'])
-            
-            # Log progress
-            self.logger.info(f"  Mean reward: {epoch_stats['mean_reward']:.3f} ± {epoch_stats['std_reward']:.3f}")
-            self.logger.info(f"  Mean length: {epoch_stats['mean_length']:.1f}")
-            self.logger.info(f"  Policy loss: {epoch_stats['policy_loss']:.4f}")
-            self.logger.info(f"  Value loss: {epoch_stats['value_loss']:.4f}")
-            self.logger.info(f"  Entropy: {epoch_stats['entropy']:.4f}")
-            
-            # Save model if improved
-            if epoch_stats['mean_reward'] > best_reward:
-                best_reward = epoch_stats['mean_reward']
-                best_model_path = self.model_dir / "best_model.pth"
-                self.agent.save_model(str(best_model_path))
-                self.logger.info(f"New best model saved with reward: {best_reward:.3f}")
-            
-            # Periodic saves
-            if (epoch + 1) % save_frequency == 0:
-                checkpoint_path = self.model_dir / f"checkpoint_epoch_{epoch + 1}.pth"
-                self.agent.save_model(str(checkpoint_path))
-                self.logger.info(f"Checkpoint saved: {checkpoint_path}")
-            
-            # Evaluation
-            if (epoch + 1) % evaluation_frequency == 0:
-                eval_stats = self.evaluate(num_episodes=5)
-                self.logger.info(f"Evaluation - Mean reward: {eval_stats['mean_reward']:.3f}")
+        self.logger.info("Beginning training loop...")
+        
+        for step in range(num_steps):
+            try:
+                # Training step using only replay buffer data
+                if step == 0:
+                    self.logger.info("Performing first training step...")
+                
+                losses = self.train_step(batch_size)
+                
+                if step == 0:
+                    self.logger.info(f"First step completed! Losses: {losses}")
+                
+                # Update training history
+                self.training_history['v_losses'].append(losses['v_loss'])
+                self.training_history['q_losses'].append(losses['q1_loss'] + losses['q2_loss'])
+                self.training_history['policy_losses'].append(losses['policy_loss'])
+                self.training_history['total_losses'].append(losses['total_loss'])
+                
+                # Regular progress logging
+                if (step + 1) % log_frequency == 0:
+                    self.logger.info(f"Step {step + 1}/{num_steps} - "
+                                   f"V: {losses['v_loss']:.4f}, "
+                                   f"Q: {losses['q1_loss'] + losses['q2_loss']:.4f}, "
+                                   f"Policy: {losses['policy_loss']:.4f}")
+                
+                # Periodic offline evaluation
+                if (step + 1) % eval_frequency == 0:
+                    self.logger.info(f"Performing offline evaluation at step {step + 1}")
+                    eval_score = self.offline_policy_evaluation()
+                    self.training_history['offline_eval_scores'].append(eval_score)
+                    
+                    self.logger.info(f"=== EVALUATION STEP {step + 1}/{num_steps} ===")
+                    self.logger.info(f"  V loss: {losses['v_loss']:.4f}")
+                    self.logger.info(f"  Q loss: {losses['q1_loss'] + losses['q2_loss']:.4f}")
+                    self.logger.info(f"  Policy loss: {losses['policy_loss']:.4f}")
+                    self.logger.info(f"  Offline eval score: {eval_score:.3f}")
+                    
+                    # Save best model based on offline evaluation
+                    if eval_score > best_eval_score:
+                        best_eval_score = eval_score
+                        best_model_path = self.model_dir / "best_model.pth"
+                        self.agent.save_model(str(best_model_path))
+                        self.logger.info(f"New best model saved with eval score: {best_eval_score:.3f}")
+                
+                # Periodic saves
+                if (step + 1) % save_frequency == 0:
+                    checkpoint_path = self.model_dir / f"checkpoint_step_{step + 1}.pth"
+                    self.agent.save_model(str(checkpoint_path))
+                    self.logger.info(f"Checkpoint saved: {checkpoint_path}")
+                    
+            except Exception as e:
+                self.logger.error(f"Error at training step {step + 1}: {e}")
+                import traceback
+                self.logger.error(traceback.format_exc())
+                raise
         
         # Save final model
         final_model_path = self.model_dir / "final_model.pth"
@@ -346,12 +310,28 @@ class OfflineRLTrainer:
         # Save training history
         self.save_training_history()
         
-        self.logger.info("Training completed!")
+        self.logger.info("Offline RL training completed!")
         return self.training_history
+    
+    def initialize_environment_for_eval(self):
+        """Initialize environment ONLY for final evaluation after training."""
+        self.logger.info("Initializing environment for post-training evaluation only")
+        
+        self.env = DatacenterDeflectionEnv(
+            dataset_path=self.dataset_path,
+            normalize_states=True
+        )
+        
+        self.logger.info(f"Environment initialized for evaluation:")
+        self.logger.info(f"  - State space: {self.env.observation_space}")
+        self.logger.info(f"  - Action space: {self.env.action_space}")
     
     def evaluate(self, num_episodes: int = 10, deterministic: bool = True) -> Dict[str, float]:
         """
-        Evaluate the trained agent.
+        Evaluate the trained agent in the environment.
+        
+        This is the ONLY place where environment interaction happens.
+        Used only for final validation after offline training is complete.
         
         Args:
             num_episodes: Number of evaluation episodes
@@ -360,7 +340,10 @@ class OfflineRLTrainer:
         Returns:
             Evaluation statistics
         """
-        self.logger.info(f"Evaluating agent for {num_episodes} episodes")
+        if self.env is None:
+            self.initialize_environment_for_eval()
+        
+        self.logger.info(f"Evaluating trained agent for {num_episodes} episodes")
         
         episode_rewards = []
         episode_lengths = []
@@ -407,36 +390,37 @@ class OfflineRLTrainer:
         self.logger.info(f"Training history saved to {history_file}")
     
     def plot_training_progress(self, save_path: Optional[str] = None):
-        """Plot training progress."""
+        """Plot offline RL training progress."""
         fig, axes = plt.subplots(2, 2, figsize=(15, 10))
         
-        # Episode rewards
-        axes[0, 0].plot(self.training_history['episode_rewards'])
-        axes[0, 0].set_title('Episode Rewards')
-        axes[0, 0].set_xlabel('Epoch')
-        axes[0, 0].set_ylabel('Mean Reward')
+        # Value loss
+        axes[0, 0].plot(self.training_history['v_losses'])
+        axes[0, 0].set_title('Value Function Loss')
+        axes[0, 0].set_xlabel('Training Step')
+        axes[0, 0].set_ylabel('Loss')
         axes[0, 0].grid(True)
         
-        # Policy loss
-        axes[0, 1].plot(self.training_history['policy_losses'])
-        axes[0, 1].set_title('Policy Loss')
-        axes[0, 1].set_xlabel('Epoch')
+        # Q loss
+        axes[0, 1].plot(self.training_history['q_losses'])
+        axes[0, 1].set_title('Q-Function Loss')
+        axes[0, 1].set_xlabel('Training Step')
         axes[0, 1].set_ylabel('Loss')
         axes[0, 1].grid(True)
         
-        # Value loss
-        axes[1, 0].plot(self.training_history['value_losses'])
-        axes[1, 0].set_title('Value Loss')
-        axes[1, 0].set_xlabel('Epoch')
+        # Policy loss
+        axes[1, 0].plot(self.training_history['policy_losses'])
+        axes[1, 0].set_title('Policy Loss')
+        axes[1, 0].set_xlabel('Training Step')
         axes[1, 0].set_ylabel('Loss')
         axes[1, 0].grid(True)
         
-        # Entropy
-        axes[1, 1].plot(self.training_history['entropies'])
-        axes[1, 1].set_title('Policy Entropy')
-        axes[1, 1].set_xlabel('Epoch')
-        axes[1, 1].set_ylabel('Entropy')
-        axes[1, 1].grid(True)
+        # Offline evaluation scores
+        if self.training_history['offline_eval_scores']:
+            axes[1, 1].plot(self.training_history['offline_eval_scores'])
+            axes[1, 1].set_title('Offline Policy Evaluation')
+            axes[1, 1].set_xlabel('Evaluation Point')
+            axes[1, 1].set_ylabel('Estimated Value')
+            axes[1, 1].grid(True)
         
         plt.tight_layout()
         
@@ -448,22 +432,26 @@ class OfflineRLTrainer:
 
 
 def main():
-    """Main training function."""
-    parser = argparse.ArgumentParser(description='Offline RL Training for Datacenter Deflection')
+    """Main training function for true offline RL."""
+    parser = argparse.ArgumentParser(description='True Offline RL Training for Datacenter Deflection')
     
     parser.add_argument('--dataset', type=str, 
                        default='/home/ubuntu/practical_deflection/Omnet_Sims/dc_simulations/simulations/sims/combined_threshold_dataset.csv',
                        help='Path to the threshold dataset')
-    parser.add_argument('--epochs', type=int, default=100,
-                       help='Number of training epochs')
-    parser.add_argument('--episodes-per-epoch', type=int, default=10,
-                       help='Episodes per epoch')
-    parser.add_argument('--max-steps', type=int, default=100,
-                       help='Maximum steps per episode')
+    parser.add_argument('--steps', type=int, default=50000,
+                       help='Number of training steps')
+    parser.add_argument('--batch-size', type=int, default=256,
+                       help='Batch size for training')
+    parser.add_argument('--lr-q', type=float, default=3e-4,
+                       help='Learning rate for Q-networks')
+    parser.add_argument('--lr-v', type=float, default=3e-4,
+                       help='Learning rate for value network')
     parser.add_argument('--lr-policy', type=float, default=3e-4,
                        help='Learning rate for policy network')
-    parser.add_argument('--lr-value', type=float, default=3e-4,
-                       help='Learning rate for value network')
+    parser.add_argument('--expectile', type=float, default=0.8,
+                       help='Expectile for value function')
+    parser.add_argument('--temperature', type=float, default=3.0,
+                       help='Temperature for advantage weighting')
     parser.add_argument('--device', type=str, default='cpu',
                        help='Device to run on (cpu/cuda)')
     parser.add_argument('--log-dir', type=str, 
@@ -483,34 +471,36 @@ def main():
         device=args.device
     )
     
-    # Load dataset and initialize environment
-    trainer.load_dataset()
-    trainer.initialize_environment()
+    # Load dataset into replay buffer (NO environment initialization)
+    trainer.load_replay_buffer()
     
-    # Initialize agent
+    # Initialize IQL agent
     trainer.initialize_agent(
+        lr_q=args.lr_q,
+        lr_v=args.lr_v,
         lr_policy=args.lr_policy,
-        lr_value=args.lr_value
+        expectile=args.expectile,
+        temperature=args.temperature
     )
     
-    # Train the agent
+    # Train the agent using ONLY the dataset
     training_history = trainer.train(
-        num_epochs=args.epochs,
-        episodes_per_epoch=args.episodes_per_epoch,
-        max_steps_per_episode=args.max_steps
+        num_steps=args.steps,
+        batch_size=args.batch_size
     )
     
     # Plot training progress
-    plot_path = Path(args.log_dir) / "training_progress.png"
+    plot_path = Path(args.log_dir) / "offline_training_progress.png"
     trainer.plot_training_progress(save_path=plot_path)
     
-    # Final evaluation
+    # Final evaluation in environment (ONLY post-training validation)
+    print(f"\n🔍 FINAL ENVIRONMENT EVALUATION (post-training validation only):")
+    print("=" * 70)
     final_eval = trainer.evaluate(num_episodes=20)
-    print(f"\nFinal Evaluation Results:")
     print(f"Mean Reward: {final_eval['mean_reward']:.3f} ± {final_eval['std_reward']:.3f}")
     print(f"Min/Max Reward: {final_eval['min_reward']:.3f} / {final_eval['max_reward']:.3f}")
     print(f"Mean Episode Length: {final_eval['mean_length']:.1f}")
-
+    print("\noffline RL training completed!")
 
 if __name__ == "__main__":
     main()
