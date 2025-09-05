@@ -1,0 +1,313 @@
+|--- service_rate <= 1.13
+|   |--- service_rate <= 0.95
+|   |   |--- load <= -0.77
+|   |   |   |--- load <= -1.10
+|   |   |   |   |--- threshold <= 2.55
+|   |   |   |   |   |--- threshold <= -0.61
+|   |   |   |   |   |   |--- class: forward
+|   |   |   |   |   |--- threshold >  -0.61
+|   |   |   |   |   |   |--- threshold <= -0.59
+|   |   |   |   |   |   |   |--- class: forward
+|   |   |   |   |   |   |--- threshold >  -0.59
+|   |   |   |   |   |   |   |--- queue_length <= -0.26
+|   |   |   |   |   |   |   |   |--- arrival_rate <= -0.25
+|   |   |   |   |   |   |   |   |   |--- class: forward
+|   |   |   |   |   |   |   |   |--- arrival_rate >  -0.25
+|   |   |   |   |   |   |   |   |   |--- load <= -2.04
+|   |   |   |   |   |   |   |   |   |   |--- class: forward
+|   |   |   |   |   |   |   |   |   |--- load >  -2.04
+|   |   |   |   |   |   |   |   |   |   |--- class: forward
+|   |   |   |   |   |   |   |--- queue_length >  -0.26
+|   |   |   |   |   |   |   |   |--- queue_length <= -0.24
+|   |   |   |   |   |   |   |   |   |--- queue_length <= -0.24
+|   |   |   |   |   |   |   |   |   |   |--- class: forward
+|   |   |   |   |   |   |   |   |   |--- queue_length >  -0.24
+|   |   |   |   |   |   |   |   |   |   |--- class: forward
+|   |   |   |   |   |   |   |   |--- queue_length >  -0.24
+|   |   |   |   |   |   |   |   |   |--- class: forward
+|   |   |   |   |--- threshold >  2.55
+|   |   |   |   |   |--- class: forward
+|   |   |   |--- load >  -1.10
+|   |   |   |   |--- threshold <= -0.57
+|   |   |   |   |   |--- service_rate <= 0.78
+|   |   |   |   |   |   |--- class: forward
+|   |   |   |   |   |--- service_rate >  0.78
+|   |   |   |   |   |   |--- class: forward
+|   |   |   |   |--- threshold >  -0.57
+|   |   |   |   |   |--- threshold <= -0.47
+|   |   |   |   |   |   |--- queue_length <= -0.34
+|   |   |   |   |   |   |   |--- class: forward
+|   |   |   |   |   |   |--- queue_length >  -0.34
+|   |   |   |   |   |   |   |--- threshold <= -0.52
+|   |   |   |   |   |   |   |   |--- class: forward
+|   |   |   |   |   |   |   |--- threshold >  -0.52
+|   |   |   |   |   |   |   |   |--- class: forward
+|   |   |   |   |   |--- threshold >  -0.47
+|   |   |   |   |   |   |--- service_rate <= 0.48
+|   |   |   |   |   |   |   |--- service_rate <= -1.36
+|   |   |   |   |   |   |   |   |--- queue_length <= -0.32
+|   |   |   |   |   |   |   |   |   |--- class: forward
+|   |   |   |   |   |   |   |   |--- queue_length >  -0.32
+|   |   |   |   |   |   |   |   |   |--- utilization <= -0.57
+|   |   |   |   |   |   |   |   |   |   |--- class: forward
+|   |   |   |   |   |   |   |   |   |--- utilization >  -0.57
+|   |   |   |   |   |   |   |   |   |   |--- class: forward
+|   |   |   |   |   |   |   |--- service_rate >  -1.36
+|   |   |   |   |   |   |   |   |--- class: forward
+|   |   |   |   |   |   |--- service_rate >  0.48
+|   |   |   |   |   |   |   |--- arrival_rate <= 0.02
+|   |   |   |   |   |   |   |   |--- utilization <= 0.46
+|   |   |   |   |   |   |   |   |   |--- class: forward
+|   |   |   |   |   |   |   |   |--- utilization >  0.46
+|   |   |   |   |   |   |   |   |   |--- class: forward
+|   |   |   |   |   |   |   |--- arrival_rate >  0.02
+|   |   |   |   |   |   |   |   |--- arrival_rate <= 0.04
+|   |   |   |   |   |   |   |   |   |--- class: forward
+|   |   |   |   |   |   |   |   |--- arrival_rate >  0.04
+|   |   |   |   |   |   |   |   |   |--- utilization <= 0.30
+|   |   |   |   |   |   |   |   |   |   |--- class: forward
+|   |   |   |   |   |   |   |   |   |--- utilization >  0.30
+|   |   |   |   |   |   |   |   |   |   |--- class: forward
+|   |   |--- load >  -0.77
+|   |   |   |--- threshold <= -0.49
+|   |   |   |   |--- arrival_rate <= 0.28
+|   |   |   |   |   |--- threshold <= -0.63
+|   |   |   |   |   |   |--- queue_length <= 1.10
+|   |   |   |   |   |   |   |--- utilization <= -0.56
+|   |   |   |   |   |   |   |   |--- utilization <= -0.58
+|   |   |   |   |   |   |   |   |   |--- service_rate <= 0.85
+|   |   |   |   |   |   |   |   |   |   |--- class: forward
+|   |   |   |   |   |   |   |   |   |--- service_rate >  0.85
+|   |   |   |   |   |   |   |   |   |   |--- class: forward
+|   |   |   |   |   |   |   |   |--- utilization >  -0.58
+|   |   |   |   |   |   |   |   |   |--- utilization <= -0.58
+|   |   |   |   |   |   |   |   |   |   |--- class: forward
+|   |   |   |   |   |   |   |   |   |--- utilization >  -0.58
+|   |   |   |   |   |   |   |   |   |   |--- class: forward
+|   |   |   |   |   |   |   |--- utilization >  -0.56
+|   |   |   |   |   |   |   |   |--- utilization <= 0.50
+|   |   |   |   |   |   |   |   |   |--- load <= -0.69
+|   |   |   |   |   |   |   |   |   |   |--- class: forward
+|   |   |   |   |   |   |   |   |   |--- load >  -0.69
+|   |   |   |   |   |   |   |   |   |   |--- class: forward
+|   |   |   |   |   |   |   |   |--- utilization >  0.50
+|   |   |   |   |   |   |   |   |   |--- utilization <= 0.56
+|   |   |   |   |   |   |   |   |   |   |--- class: forward
+|   |   |   |   |   |   |   |   |   |--- utilization >  0.56
+|   |   |   |   |   |   |   |   |   |   |--- class: forward
+|   |   |   |   |   |   |--- queue_length >  1.10
+|   |   |   |   |   |   |   |--- queue_length <= 1.14
+|   |   |   |   |   |   |   |   |--- class: forward
+|   |   |   |   |   |   |   |--- queue_length >  1.14
+|   |   |   |   |   |   |   |   |--- service_rate <= 0.77
+|   |   |   |   |   |   |   |   |   |--- arrival_rate <= 0.07
+|   |   |   |   |   |   |   |   |   |   |--- class: forward
+|   |   |   |   |   |   |   |   |   |--- arrival_rate >  0.07
+|   |   |   |   |   |   |   |   |   |   |--- class: forward
+|   |   |   |   |   |   |   |   |--- service_rate >  0.77
+|   |   |   |   |   |   |   |   |   |--- class: forward
+|   |   |   |   |   |--- threshold >  -0.63
+|   |   |   |   |   |   |--- queue_length <= -0.45
+|   |   |   |   |   |   |   |--- load <= 0.41
+|   |   |   |   |   |   |   |   |--- class: forward
+|   |   |   |   |   |   |   |--- load >  0.41
+|   |   |   |   |   |   |   |   |--- class: forward
+|   |   |   |   |   |   |--- queue_length >  -0.45
+|   |   |   |   |   |   |   |--- queue_length <= -0.31
+|   |   |   |   |   |   |   |   |--- arrival_rate <= 0.05
+|   |   |   |   |   |   |   |   |   |--- class: forward
+|   |   |   |   |   |   |   |   |--- arrival_rate >  0.05
+|   |   |   |   |   |   |   |   |   |--- arrival_rate <= 0.08
+|   |   |   |   |   |   |   |   |   |   |--- class: forward
+|   |   |   |   |   |   |   |   |   |--- arrival_rate >  0.08
+|   |   |   |   |   |   |   |   |   |   |--- class: forward
+|   |   |   |   |   |   |   |--- queue_length >  -0.31
+|   |   |   |   |   |   |   |   |--- utilization <= 0.60
+|   |   |   |   |   |   |   |   |   |--- load <= 1.38
+|   |   |   |   |   |   |   |   |   |   |--- class: forward
+|   |   |   |   |   |   |   |   |   |--- load >  1.38
+|   |   |   |   |   |   |   |   |   |   |--- class: forward
+|   |   |   |   |   |   |   |   |--- utilization >  0.60
+|   |   |   |   |   |   |   |   |   |--- class: forward
+|   |   |   |   |--- arrival_rate >  0.28
+|   |   |   |   |   |--- service_rate <= 0.58
+|   |   |   |   |   |   |--- load <= 0.90
+|   |   |   |   |   |   |   |--- threshold <= -1.61
+|   |   |   |   |   |   |   |   |--- class: forward
+|   |   |   |   |   |   |   |--- threshold >  -1.61
+|   |   |   |   |   |   |   |   |--- class: forward
+|   |   |   |   |   |   |--- load >  0.90
+|   |   |   |   |   |   |   |--- class: forward
+|   |   |   |   |   |--- service_rate >  0.58
+|   |   |   |   |   |   |--- class: deflect
+|   |   |   |--- threshold >  -0.49
+|   |   |   |   |--- utilization <= 0.63
+|   |   |   |   |   |--- service_rate <= -1.52
+|   |   |   |   |   |   |--- load <= 0.22
+|   |   |   |   |   |   |   |--- utilization <= -0.69
+|   |   |   |   |   |   |   |   |--- class: forward
+|   |   |   |   |   |   |   |--- utilization >  -0.69
+|   |   |   |   |   |   |   |   |--- threshold <= 1.47
+|   |   |   |   |   |   |   |   |   |--- arrival_rate <= -0.13
+|   |   |   |   |   |   |   |   |   |   |--- class: forward
+|   |   |   |   |   |   |   |   |   |--- arrival_rate >  -0.13
+|   |   |   |   |   |   |   |   |   |   |--- class: forward
+|   |   |   |   |   |   |   |   |--- threshold >  1.47
+|   |   |   |   |   |   |   |   |   |--- class: forward
+|   |   |   |   |   |   |--- load >  0.22
+|   |   |   |   |   |   |   |--- load <= 0.34
+|   |   |   |   |   |   |   |   |--- class: forward
+|   |   |   |   |   |   |   |--- load >  0.34
+|   |   |   |   |   |   |   |   |--- arrival_rate <= -0.00
+|   |   |   |   |   |   |   |   |   |--- arrival_rate <= -0.04
+|   |   |   |   |   |   |   |   |   |   |--- class: forward
+|   |   |   |   |   |   |   |   |   |--- arrival_rate >  -0.04
+|   |   |   |   |   |   |   |   |   |   |--- class: forward
+|   |   |   |   |   |   |   |   |--- arrival_rate >  -0.00
+|   |   |   |   |   |   |   |   |   |--- threshold <= 1.47
+|   |   |   |   |   |   |   |   |   |   |--- class: forward
+|   |   |   |   |   |   |   |   |   |--- threshold >  1.47
+|   |   |   |   |   |   |   |   |   |   |--- class: forward
+|   |   |   |   |   |--- service_rate >  -1.52
+|   |   |   |   |   |   |--- arrival_rate <= -0.11
+|   |   |   |   |   |   |   |--- threshold <= 0.53
+|   |   |   |   |   |   |   |   |--- threshold <= 0.47
+|   |   |   |   |   |   |   |   |   |--- utilization <= 0.40
+|   |   |   |   |   |   |   |   |   |   |--- class: forward
+|   |   |   |   |   |   |   |   |   |--- utilization >  0.40
+|   |   |   |   |   |   |   |   |   |   |--- class: forward
+|   |   |   |   |   |   |   |   |--- threshold >  0.47
+|   |   |   |   |   |   |   |   |   |--- class: forward
+|   |   |   |   |   |   |   |--- threshold >  0.53
+|   |   |   |   |   |   |   |   |--- service_rate <= 0.62
+|   |   |   |   |   |   |   |   |   |--- threshold <= 1.35
+|   |   |   |   |   |   |   |   |   |   |--- class: forward
+|   |   |   |   |   |   |   |   |   |--- threshold >  1.35
+|   |   |   |   |   |   |   |   |   |   |--- class: forward
+|   |   |   |   |   |   |   |   |--- service_rate >  0.62
+|   |   |   |   |   |   |   |   |   |--- class: forward
+|   |   |   |   |   |   |--- arrival_rate >  -0.11
+|   |   |   |   |   |   |   |--- service_rate <= -1.51
+|   |   |   |   |   |   |   |   |--- queue_length <= -0.28
+|   |   |   |   |   |   |   |   |   |--- class: forward
+|   |   |   |   |   |   |   |   |--- queue_length >  -0.28
+|   |   |   |   |   |   |   |   |   |--- class: forward
+|   |   |   |   |   |   |   |--- service_rate >  -1.51
+|   |   |   |   |   |   |   |   |--- utilization <= 0.31
+|   |   |   |   |   |   |   |   |   |--- arrival_rate <= 0.26
+|   |   |   |   |   |   |   |   |   |   |--- class: forward
+|   |   |   |   |   |   |   |   |   |--- arrival_rate >  0.26
+|   |   |   |   |   |   |   |   |   |   |--- class: forward
+|   |   |   |   |   |   |   |   |--- utilization >  0.31
+|   |   |   |   |   |   |   |   |   |--- arrival_rate <= -0.10
+|   |   |   |   |   |   |   |   |   |   |--- class: forward
+|   |   |   |   |   |   |   |   |   |--- arrival_rate >  -0.10
+|   |   |   |   |   |   |   |   |   |   |--- class: forward
+|   |   |   |   |--- utilization >  0.63
+|   |   |   |   |   |--- arrival_rate <= 0.80
+|   |   |   |   |   |   |--- queue_length <= -0.30
+|   |   |   |   |   |   |   |--- queue_length <= -0.31
+|   |   |   |   |   |   |   |   |--- utilization <= 1.49
+|   |   |   |   |   |   |   |   |   |--- arrival_rate <= 0.01
+|   |   |   |   |   |   |   |   |   |   |--- class: forward
+|   |   |   |   |   |   |   |   |   |--- arrival_rate >  0.01
+|   |   |   |   |   |   |   |   |   |   |--- class: forward
+|   |   |   |   |   |   |   |   |--- utilization >  1.49
+|   |   |   |   |   |   |   |   |   |--- class: forward
+|   |   |   |   |   |   |   |--- queue_length >  -0.31
+|   |   |   |   |   |   |   |   |--- class: forward
+|   |   |   |   |   |   |--- queue_length >  -0.30
+|   |   |   |   |   |   |   |--- service_rate <= -1.52
+|   |   |   |   |   |   |   |   |--- utilization <= 1.45
+|   |   |   |   |   |   |   |   |   |--- class: forward
+|   |   |   |   |   |   |   |   |--- utilization >  1.45
+|   |   |   |   |   |   |   |   |   |--- class: forward
+|   |   |   |   |   |   |   |--- service_rate >  -1.52
+|   |   |   |   |   |   |   |   |--- queue_length <= 4.35
+|   |   |   |   |   |   |   |   |   |--- class: forward
+|   |   |   |   |   |   |   |   |--- queue_length >  4.35
+|   |   |   |   |   |   |   |   |   |--- queue_length <= 4.46
+|   |   |   |   |   |   |   |   |   |   |--- class: forward
+|   |   |   |   |   |   |   |   |   |--- queue_length >  4.46
+|   |   |   |   |   |   |   |   |   |   |--- class: forward
+|   |   |   |   |   |--- arrival_rate >  0.80
+|   |   |   |   |   |   |--- arrival_rate <= 1.75
+|   |   |   |   |   |   |   |--- class: forward
+|   |   |   |   |   |   |--- arrival_rate >  1.75
+|   |   |   |   |   |   |   |--- class: forward
+|   |--- service_rate >  0.95
+|   |   |--- queue_length <= 0.82
+|   |   |   |--- class: forward
+|   |   |--- queue_length >  0.82
+|   |   |   |--- utilization <= 0.67
+|   |   |   |   |--- class: forward
+|   |   |   |--- utilization >  0.67
+|   |   |   |   |--- class: deflect
+|--- service_rate >  1.13
+|   |--- threshold <= -0.02
+|   |   |--- queue_length <= 0.61
+|   |   |   |--- queue_length <= 0.08
+|   |   |   |   |--- class: forward
+|   |   |   |--- queue_length >  0.08
+|   |   |   |   |--- class: forward
+|   |   |--- queue_length >  0.61
+|   |   |   |--- utilization <= -0.47
+|   |   |   |   |--- class: forward
+|   |   |   |--- utilization >  -0.47
+|   |   |   |   |--- arrival_rate <= -0.35
+|   |   |   |   |   |--- class: forward
+|   |   |   |   |--- arrival_rate >  -0.35
+|   |   |   |   |   |--- arrival_rate <= 2.21
+|   |   |   |   |   |   |--- utilization <= 2.04
+|   |   |   |   |   |   |   |--- load <= -0.06
+|   |   |   |   |   |   |   |   |--- class: deflect
+|   |   |   |   |   |   |   |--- load >  -0.06
+|   |   |   |   |   |   |   |   |--- load <= 1.91
+|   |   |   |   |   |   |   |   |   |--- threshold <= -2.05
+|   |   |   |   |   |   |   |   |   |   |--- class: deflect
+|   |   |   |   |   |   |   |   |   |--- threshold >  -2.05
+|   |   |   |   |   |   |   |   |   |   |--- class: deflect
+|   |   |   |   |   |   |   |   |--- load >  1.91
+|   |   |   |   |   |   |   |   |   |--- class: deflect
+|   |   |   |   |   |   |--- utilization >  2.04
+|   |   |   |   |   |   |   |--- class: deflect
+|   |   |   |   |   |--- arrival_rate >  2.21
+|   |   |   |   |   |   |--- class: forward
+|   |--- threshold >  -0.02
+|   |   |--- queue_length <= 1.75
+|   |   |   |--- queue_length <= 1.34
+|   |   |   |   |--- threshold <= 0.78
+|   |   |   |   |   |--- queue_length <= -0.38
+|   |   |   |   |   |   |--- class: forward
+|   |   |   |   |   |--- queue_length >  -0.38
+|   |   |   |   |   |   |--- class: forward
+|   |   |   |   |--- threshold >  0.78
+|   |   |   |   |   |--- class: forward
+|   |   |   |--- queue_length >  1.34
+|   |   |   |   |--- class: forward
+|   |   |--- queue_length >  1.75
+|   |   |   |--- load <= 0.43
+|   |   |   |   |--- class: forward
+|   |   |   |--- load >  0.43
+|   |   |   |   |--- arrival_rate <= 0.73
+|   |   |   |   |   |--- class: forward
+|   |   |   |   |--- arrival_rate >  0.73
+|   |   |   |   |   |--- utilization <= 0.93
+|   |   |   |   |   |   |--- class: drop
+|   |   |   |   |   |--- utilization >  0.93
+|   |   |   |   |   |   |--- queue_length <= 2.03
+|   |   |   |   |   |   |   |--- class: drop
+|   |   |   |   |   |   |--- queue_length >  2.03
+|   |   |   |   |   |   |   |--- service_rate <= 1.98
+|   |   |   |   |   |   |   |   |--- class: drop
+|   |   |   |   |   |   |   |--- service_rate >  1.98
+|   |   |   |   |   |   |   |   |--- utilization <= 2.86
+|   |   |   |   |   |   |   |   |   |--- queue_length <= 2.31
+|   |   |   |   |   |   |   |   |   |   |--- class: drop
+|   |   |   |   |   |   |   |   |   |--- queue_length >  2.31
+|   |   |   |   |   |   |   |   |   |   |--- class: drop
+|   |   |   |   |   |   |   |   |--- utilization >  2.86
+|   |   |   |   |   |   |   |   |   |--- load <= 1.92
+|   |   |   |   |   |   |   |   |   |   |--- class: drop
+|   |   |   |   |   |   |   |   |   |--- load >  1.92
+|   |   |   |   |   |   |   |   |   |   |--- class: drop

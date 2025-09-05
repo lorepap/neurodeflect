@@ -16,6 +16,10 @@ The framework consists of several key components:
 
 ```
 RL_Training/
+├── data_analysis/                  # Analysis scripts and results
+│   ├── analyze_*.py               # Various analysis scripts
+│   ├── flow_analysis/             # Flow-specific analysis results
+│   └── README.md                  # Analysis documentation
 ├── environments/
 │   └── deflection_env.py          # Datacenter deflection environment
 ├── agents/

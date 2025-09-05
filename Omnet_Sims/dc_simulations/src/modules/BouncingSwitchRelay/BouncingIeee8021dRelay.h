@@ -156,6 +156,8 @@ class BouncingIeee8021dRelay : public LayeredProtocolBase
     static simsignal_t switchIdSignal; // Switch ID for the packet
     static simsignal_t switchIdActionSignal; // Switch ID for the action taken on the packet
     static simsignal_t interfaceIdSignal; // Interface ID for the packet
+    static simsignal_t flowIdSignal; // True flow ID (5-tuple without sequence number)
+    static simsignal_t packetSizeSignal; // Packet size in bytes
     unsigned long long light_in_relay_packet_drop_counter = 0;
 
     // Definizione dei valori per relayAction

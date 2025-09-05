@@ -67,6 +67,8 @@ simsignal_t BouncingIeee8021dRelay::actionSeqNumSignal = registerSignal("actionS
 simsignal_t BouncingIeee8021dRelay::switchIdSignal = registerSignal("switchId");
 simsignal_t BouncingIeee8021dRelay::switchIdActionSignal = registerSignal("switchIdAction");
 simsignal_t BouncingIeee8021dRelay::interfaceIdSignal = registerSignal("interfaceId");
+simsignal_t BouncingIeee8021dRelay::flowIdSignal = registerSignal("flowId"); // True flow ID (5-tuple without sequence)
+simsignal_t BouncingIeee8021dRelay::packetSizeSignal = registerSignal("packetSize"); // Packet size in bytes
 
 BouncingIeee8021dRelay::BouncingIeee8021dRelay()
 {
@@ -2486,14 +2488,22 @@ void BouncingIeee8021dRelay::dispatch(Packet *packet, InterfaceEntry *ie)
                 uint32_t dstAddrInt = ip_header->getDestAddress().getInt();
                 FlowKey f1 = FlowKey{static_cast<uint32_t>(sequenceNo), srcPort, dstPort, srcAddrInt, dstAddrInt};
                 hashedId = f1.getSafeHash();
+                
+                // Create true flow ID (5-tuple WITHOUT sequence number for flow identification)
+                FlowKey flowKey = FlowKey{0, srcPort, dstPort, srcAddrInt, dstAddrInt}; // sequenceNo = 0 for flow-level grouping
+                size_t trueFlowId = flowKey.getSafeHash();
+                
                 long packetUniqueID = requesterID * 100000L + static_cast<long>(sequenceNo);
                 short ttl = ip_header->getTimeToLive();
+                long packetSizeBytes = packet->getTotalLength().get(); // Get packet size in bytes
                 emit(requesterIDSignal, payload->getRequesterID());
                 emit(interfaceIdSignal, ie->getIndex());
                 emit(packetUniqueIDSignal, packetUniqueID);
                 emit(switchSeqNumSignal, hashedId);
                 emit(switchTtlSignal, ttl);
                 emit(switchIdSignal, switchId);
+                emit(flowIdSignal, trueFlowId); // Emit true flow identifier
+                emit(packetSizeSignal, packetSizeBytes); // Emit packet size in bytes
                 
                 long totalOcc = 0;
                 for (auto mac : macList)

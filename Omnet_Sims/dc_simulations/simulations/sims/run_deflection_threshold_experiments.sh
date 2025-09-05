@@ -36,7 +36,8 @@ do_extract_with_threshold () {
     # containing the .vec/.sca files).
     pushd ./results/threshold_${threshold}/
     # Run generator (relative path back to the generator in the sims dir)
-    python3 ../../extractor_shell_creator.py ${config_name}_threshold_${threshold}
+    # Use category prefix 'deflection_threshold_<thr>' for output filenames
+    python3 ../../extractor_shell_creator.py deflection_threshold_${threshold}
     # Run the generated extractor script (script is written three levels up
     # by the generator and is designed to be executed from inside the
     # threshold directory so scavetool can open the vector files by name).

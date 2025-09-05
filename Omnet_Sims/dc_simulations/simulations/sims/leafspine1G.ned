@@ -43,6 +43,7 @@ network LeafSpine1G
         @statistic[PacketAction](title="Packet Action"; source="packetAction"; record=vector,stats; interpolationmode=none); // Registra l'azione del pacchetto (0: forward, 1: drop, 2: generate feedback)
         @statistic[switchSeqNum](record=vector,stats; interpolationmode=none); // Registra il numero di sequenza del pacchetto switch
         @statistic[switchTtl](record=vector,stats; interpolationmode=none); // Registra il TTL del pacchetto switch
+        @statistic[PacketSize](title="Packet Size"; source="packetSize"; record=vector,stats; interpolationmode=none); // Packet size in bytes - aggregated from all relay units
         @statistic[actionSeqNum](record=vector,stats; interpolationmode=none);
         //@statistic[switchId](record=vector,stats; interpolationmode=none); // Registra l'ID dello switch del pacchetto
         //@statistic[switchIdAction](record=vector,stats; interpolationmode=none); // Registra l'ID dello switch dell'azione del pacchetto

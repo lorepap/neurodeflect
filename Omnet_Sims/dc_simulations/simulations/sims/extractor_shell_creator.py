@@ -10,8 +10,8 @@ UNDER_SAME_RACK = 1
 LEAF_SPINE = 2
 TOPOLOGY = LEAF_SPINE
 REP_NUM = 1
-
-OUTPUT_FILE_DIRECTORY = '../../extracted_results/'  # Updated path for threshold subdirectory
+SIMS_DIR = '/home/ubuntu/practical_deflection/Omnet_Sims/dc_simulations/simulations/sims'
+OUTPUT_FILE_DIRECTORY = f'{SIMS_DIR}/extracted_results/'
 
 if len(sys.argv) > 1:
     add_category = sys.argv[1]
@@ -83,17 +83,10 @@ for file_name in onlyfiles:
         f.write('echo \"{}\"\n'.format(short_name))
 
         '''
+        # Flow- and requester-related extractions (enabled for RL dataset enrichment)
         output_dir_name = 'FLOW_ENDED/'
         command = "scavetool x --type v --filter \"module(**.server[*].app[*]) AND " \
                   "\\\"flowEndedRequesterID:vector\\\"\" -o {} -F CSV-S {}\n".format(
-            OUTPUT_FILE_DIRECTORY + output_dir_name + output_file_name, vector_file_name)
-        print(command)
-        f.write('echo \"{}\"\n'.format(output_dir_name))
-        f.write(command)
-
-        output_dir_name = 'FLOW_ENDED_QUERY_ID/'
-        command = "scavetool x --type v --filter \"module(**.server[*].app[*]) AND " \
-                  "\\\"flowEndQueryID:vector\\\"\" -o {} -F CSV-S {}\n".format(
             OUTPUT_FILE_DIRECTORY + output_dir_name + output_file_name, vector_file_name)
         print(command)
         f.write('echo \"{}\"\n'.format(output_dir_name))
@@ -106,13 +99,6 @@ for file_name in onlyfiles:
         f.write('echo \"{}\"\n'.format(output_dir_name))
         f.write(command)
 
-        output_dir_name = 'FLOW_STARTED_ACTUAL_TIME/'
-        command = "scavetool x --type v --filter \"module(**.server[*].app[*]) AND " \
-                   "\\\"flowStartedActualTime:vector\\\"\" -o {} -F CSV-S {}\n".format(OUTPUT_FILE_DIRECTORY+output_dir_name+output_file_name, vector_file_name)
-        print(command)
-        f.write('echo \"{}\"\n'.format(output_dir_name))
-        f.write(command)
-        
         output_dir_name = 'REQUEST_SENT/'
         command = "scavetool x --type v --filter \"module(**.server[*].app[*]) AND " \
                   "\\\"requestSentRequesterID:vector\\\"\" -o {} -F CSV-S {}\n".format(OUTPUT_FILE_DIRECTORY+output_dir_name+output_file_name, vector_file_name)
@@ -126,34 +112,14 @@ for file_name in onlyfiles:
         print(command)
         f.write('echo \"{}\"\n'.format(output_dir_name))
         f.write(command)
-        
-        output_dir_name = 'NO_JITTER_REQUEST_SENT/'
-        command = "scavetool x --type v --filter \"module(**.server[*].app[*]) AND " \
-                  "\\\"notJitteredRequestSentTime:vector\\\"\" -o {} -F CSV-S {}\n".format(OUTPUT_FILE_DIRECTORY+output_dir_name+output_file_name, vector_file_name)
+
+        # Requester ID per packet at switches (note: signal is 'requesterID' in code)
+        output_dir_name = 'REQUESTER_ID/'
+        command = "scavetool x --type v --filter \"module(**.**.relayUnit) AND " \
+                  "\\\"RequesterID:vector\\\"\" -o {} -F CSV-S {}\n".format(OUTPUT_FILE_DIRECTORY+output_dir_name+output_file_name, vector_file_name)
         print(command)
         f.write('echo \"{}\"\n'.format(output_dir_name))
         f.write(command)
-        
-        output_dir_name = 'CHUNKS_RCVD_LENGTH/'
-        command = "scavetool x --type v --filter \"module(**.server[*].app[*]) AND " \
-                  "\\\"chunksRcvdLength:vector\\\"\" -o {} -F CSV-S {}\n".format(OUTPUT_FILE_DIRECTORY+output_dir_name+output_file_name, vector_file_name)
-        print(command)
-        f.write('echo \"{}\"\n'.format(output_dir_name))
-        f.write(command)
-        
-        output_dir_name = 'CHUNKS_RCVD_TOTAL_LENGTH/'
-        command = "scavetool x --type v --filter \"module(**.server[*].app[*]) AND " \
-                  "\\\"chunksRcvdTotalLength:vector\\\"\" -o {} -F CSV-S {}\n".format(OUTPUT_FILE_DIRECTORY+output_dir_name+output_file_name, vector_file_name)
-        print(command)
-        f.write('echo \"{}\"\n'.format(output_dir_name))
-        f.write(command)
-        
-        # output_dir_name = 'PACKET_RCVED_APP_LAYER/'
-        # command = "scavetool x --type v --filter \"module(**.server[*].app[*]) AND " \
-        #           "\\\"packetReceived:vector(packetBytes)\\\"\" -o {} -F CSV-S {}\n".format(OUTPUT_FILE_DIRECTORY+output_dir_name+output_file_name, vector_file_name)
-        # print(command)
-        # f.write('echo \"{}\"\n'.format(output_dir_name))
-        # f.write(command)
         
         output_dir_name = 'SYN_SENT/'
         command = "scavetool x --type v --filter \"module(**.server[*].tcp) AND " \
@@ -577,22 +543,7 @@ for file_name in onlyfiles:
         f.write('echo \"{}\"\n'.format(output_dir_name))
         f.write(command)
         
-        # Aggiunta estrazione del campo RequesterID
-        output_dir_name = 'REQUESTER_ID/'
-        command = "scavetool x --type v --filter \"module(**.**.relayUnit) AND " \
-                  "\\\"RequesterID:vector\\\"\" -o {} -F CSV-S {}\n".format(OUTPUT_FILE_DIRECTORY+output_dir_name+output_file_name, vector_file_name)
-        print(command)
-        f.write('echo \"{}\"\n'.format(output_dir_name))
-        f.write(command)
-        
-        # Estrazione del nuovo campo PacketUniqueID
-        output_dir_name = 'PACKET_UNIQUE_ID/'
-        command = "scavetool x --type v --filter \"module(**.**.relayUnit) AND " \
-                  "\\\"PacketUniqueID:vector\\\"\" -o {} -F CSV-S {}\n".format(OUTPUT_FILE_DIRECTORY+output_dir_name+output_file_name, vector_file_name)
-        print(command)
-        f.write('echo \"{}\"\n'.format(output_dir_name))
-        f.write(command)
-        '''
+    '''
         output_dir_name = 'QUEUE_LEN/'
         command = "scavetool x --type v --filter \"module(LeafSpine1G) AND " \
                     "\\\"QueueLen:vector\\\"\" -o {} -F CSV-S {}\n".format(OUTPUT_FILE_DIRECTORY+output_dir_name+output_file_name, vector_file_name)
@@ -754,8 +705,8 @@ for file_name in onlyfiles:
         
         
         output_dir_name = 'SWITCH_ID/'
-        command = "scavetool x --type v --filter \"module(LeafSpine1G) AND " \
-                  "\\\"switchId:vector\\\"\" -o {} -F CSV-S {}\n".format(OUTPUT_FILE_DIRECTORY + output_dir_name + output_file_name, vector_file_name)
+        command = "scavetool x --type v --filter \"module(**.relayUnit) AND " \
+                  "\\\"switchId:vector\\\"\" -o {} -F CSV-R {}\n".format(OUTPUT_FILE_DIRECTORY + output_dir_name + output_file_name, vector_file_name)
         print(command)
         f.write('echo \"{}\"\n'.format(output_dir_name))
         f.write(command)
@@ -766,8 +717,8 @@ for file_name in onlyfiles:
         
         
         output_dir_name = 'SWITCH_ID_ACTION/'
-        command = "scavetool x --type v --filter \"module(LeafSpine1G) AND " \
-                  "\\\"switchIdAction:vector\\\"\" -o {} -F CSV-S {}\n".format(OUTPUT_FILE_DIRECTORY + output_dir_name + output_file_name, vector_file_name)
+        command = "scavetool x --type v --filter \"module(**.relayUnit) AND " \
+                  "\\\"switchIdAction:vector\\\"\" -o {} -F CSV-R {}\n".format(OUTPUT_FILE_DIRECTORY + output_dir_name + output_file_name, vector_file_name)
         print(command)
         f.write('echo \"{}\"\n'.format(output_dir_name))
         f.write(command)
@@ -778,14 +729,91 @@ for file_name in onlyfiles:
         
         
         output_dir_name = 'INTERFACE_ID/'
-        command = "scavetool x --type v --filter \"module(LeafSpine1G) AND " \
-                  "\\\"interfaceId:vector\\\"\" -o {} -F CSV-S {}\n".format(OUTPUT_FILE_DIRECTORY + output_dir_name + output_file_name, vector_file_name)
+        command = "scavetool x --type v --filter \"module(**.relayUnit) AND " \
+                  "\\\"interfaceId:vector\\\"\" -o {} -F CSV-R {}\n".format(OUTPUT_FILE_DIRECTORY + output_dir_name + output_file_name, vector_file_name)
         print(command)
         f.write('echo \"{}\"\n'.format(output_dir_name))
         f.write(command)
 
         command = '\n\n'
         print(command)
+        f.write(command)
+
+        # New: requester and flow-level metadata for RL datasets
+        output_dir_name = 'REQUESTER_ID/'
+        # Note: the statistic name in NED is 'RequesterID' (capital R), scavetool matches the statistic name, not the signal
+        command = "scavetool x --type v --filter \"module(**.**.relayUnit) AND " \
+            "\\\"RequesterID:vector\\\"\" -o {} -F CSV-R {}\n".format(OUTPUT_FILE_DIRECTORY + output_dir_name + output_file_name, vector_file_name)
+        print(command)
+        f.write('echo \"{}\"\n'.format(output_dir_name))
+        f.write(command)
+
+        command = '\n\n'
+        print(command)
+        f.write(command)
+
+        output_dir_name = 'FLOW_STARTED/'
+        command = "scavetool x --type v --filter \"module(**.server[*].app[*]) AND " \
+            "\\\"flowStartedRequesterID:vector\\\"\" -o {} -F CSV-R {}\n".format(OUTPUT_FILE_DIRECTORY + output_dir_name + output_file_name, vector_file_name)
+        print(command)
+        f.write('echo \"{}\"\n'.format(output_dir_name))
+        f.write(command)
+
+        command = '\n\n'
+        print(command)
+        f.write(command)
+
+        output_dir_name = 'FLOW_ENDED/'
+        command = "scavetool x --type v --filter \"module(**.server[*].app[*]) AND " \
+            "\\\"flowEndedRequesterID:vector\\\"\" -o {} -F CSV-R {}\n".format(OUTPUT_FILE_DIRECTORY + output_dir_name + output_file_name, vector_file_name)
+        print(command)
+        f.write('echo \"{}\"\n'.format(output_dir_name))
+        f.write(command)
+
+        command = '\n\n'
+        print(command)
+        f.write(command)
+
+        output_dir_name = 'REQUEST_SENT/'
+        command = "scavetool x --type v --filter \"module(**.server[*].app[*]) AND " \
+            "\\\"requestSentRequesterID:vector\\\"\" -o {} -F CSV-R {}\n".format(OUTPUT_FILE_DIRECTORY + output_dir_name + output_file_name, vector_file_name)
+        print(command)
+        f.write('echo \"{}\"\n'.format(output_dir_name))
+        f.write(command)
+
+        command = '\n\n'
+        print(command)
+        f.write(command)
+
+        output_dir_name = 'REPLY_LENGTH_ASKED/'
+        command = "scavetool x --type v --filter \"module(**.server[*].app[*]) AND " \
+            "\\\"replyLengthAsked:vector\\\"\" -o {} -F CSV-R {}\n".format(OUTPUT_FILE_DIRECTORY + output_dir_name + output_file_name, vector_file_name)
+        print(command)
+        f.write('echo \"{}\"\n'.format(output_dir_name))
+        f.write(command)
+
+        command = '\n\n'
+        print(command)
+        f.write(command)
+
+        # Add FLOW_ID extraction for true flow identification
+        output_dir_name = 'FLOW_ID/'
+        command = "scavetool x --type v --filter \"module(**.**.relayUnit) AND " \
+            "\\\"FlowID:vector\\\"\" -o {} -F CSV-R {}\n".format(OUTPUT_FILE_DIRECTORY + output_dir_name + output_file_name, vector_file_name)
+        print(command)
+        f.write('echo \"{}\"\n'.format(output_dir_name))
+        f.write(command)
+
+        command = '\n\n'
+        print(command)
+        f.write(command)
+
+        # Add PACKET_SIZE extraction for packet size information - now network-level aggregated
+        output_dir_name = 'PACKET_SIZE/'
+        command = "scavetool x --type v --filter \"module(LeafSpine1G) AND " \
+            "\\\"PacketSize:vector\\\"\" -o {} -F CSV-S {}\n".format(OUTPUT_FILE_DIRECTORY + output_dir_name + output_file_name, vector_file_name)
+        print(command)
+        f.write('echo \"{}\"\n'.format(output_dir_name))
         f.write(command)
 
 f.close()

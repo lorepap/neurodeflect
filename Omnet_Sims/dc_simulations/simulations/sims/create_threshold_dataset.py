@@ -86,6 +86,14 @@ def zip_last_two(folder1, name1, folder2, name2):
     return df1
 
 
+def _read_simple_vector_csv(folder: str, value_col: str, rename_map=None):
+    csv = first_csv_in(folder)
+    df = pd.read_csv(csv, skiprows=1, header=None, names=['timestamp', value_col], dtype={'timestamp': 'float64'})
+    if rename_map:
+        df = df.rename(columns=rename_map)
+    return df
+
+
 def create_dataset_for_threshold(threshold, base_path, output_path):
     """
     Create a dataset for a specific threshold value.
@@ -138,6 +146,50 @@ def create_dataset_for_threshold(threshold, base_path, output_path):
             merged = df_first
             merged['action'] = 2  # Default action value
         
+        # Add flow/requester metadata when available
+        # requester_id per-packet at switch (join on timestamp index only, vectors are synchronous by design here)
+        req_folder = os.path.join(threshold_path, "REQUESTER_ID")
+        if os.path.exists(req_folder):
+            df_req = _read_simple_vector_csv(req_folder, 'requester_id')
+            merged = pd.merge_asof(merged.sort_values('timestamp'), df_req.sort_values('timestamp'), on='timestamp', direction='nearest')
+
+        # per-flow attributes from server apps
+        flow_started_folder = os.path.join(threshold_path, "FLOW_STARTED")
+        flow_ended_folder = os.path.join(threshold_path, "FLOW_ENDED")
+        reply_len_folder = os.path.join(threshold_path, "REPLY_LENGTH_ASKED")
+        request_sent_folder = os.path.join(threshold_path, "REQUEST_SENT")
+
+        # We assume vectors are keyed by requester_id; we'll forward/back-fill to align
+        if all(os.path.exists(p) for p in [flow_started_folder, reply_len_folder]):
+            df_flow_start = _read_simple_vector_csv(flow_started_folder, 'flow_start_requester_id')
+            df_reply_len = _read_simple_vector_csv(reply_len_folder, 'reply_length_bytes')
+            # carry forward last known values so we can map by nearest timestamp
+            for d in (df_flow_start, df_reply_len):
+                d['timestamp_round'] = d['timestamp'].round(9)
+            df_flow_meta = pd.merge_asof(df_flow_start.sort_values('timestamp'), df_reply_len.sort_values('timestamp'), on='timestamp', direction='nearest')
+        else:
+            df_flow_meta = None
+
+        # Flow end times are sparse; keep for FCT est.
+        df_flow_end = _read_simple_vector_csv(flow_ended_folder, 'flow_end_requester_id') if os.path.exists(flow_ended_folder) else None
+
+        # Join reply_length (flow size) if known
+        if df_flow_meta is not None:
+            merged = pd.merge_asof(merged.sort_values('timestamp'), df_flow_meta[['timestamp', 'reply_length_bytes']].sort_values('timestamp'), on='timestamp', direction='nearest')
+
+        # Compute bytes_sent and bytes_remaining if we have seq_num relative to first seq
+        # Here we approximate: treat seq_num as monotonically increasing bytes sent by switch path.
+        if 'seq_num' in merged.columns:
+            min_seq = merged['seq_num'].min()
+            merged['bytes_sent'] = (merged['seq_num'] - min_seq).clip(lower=0)
+        else:
+            merged['bytes_sent'] = pd.NA
+
+        if 'reply_length_bytes' in merged.columns:
+            merged['bytes_remaining'] = (merged['reply_length_bytes'] - merged['bytes_sent']).clip(lower=0)
+        else:
+            merged['bytes_remaining'] = pd.NA
+
         # Add threshold information to the dataset
         merged['deflection_threshold'] = threshold
         

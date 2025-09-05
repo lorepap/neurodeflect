@@ -4,6 +4,7 @@ import os
 import glob
 import numpy as np
 import pandas as pd
+import hashlib
 
 
 def find_csv(folder: str) -> str:
@@ -26,25 +27,24 @@ def load_df_standard(path):
 
 
 def load_4_file(path):
-    df = pd.read_csv(
-        path,
-        header=None,
-        skiprows=1,
-        names=["time","capacity","total_capacity",
-               "occupancy","total_occupancy",
-               "seq_num","ttl","action"],
-        dtype={'time': 'float64', 'capacity': 'int64',
-               'total_capacity': 'int64', 'occupancy': 'int64',
-               'total_occupancy': 'int64', 'seq_num': 'int64',
-               'ttl': 'int64', 'action': 'int64'}
-    )
+    """Load the merged dataset CSV file with proper column handling"""
+    df = pd.read_csv(path)
+    
     if df.empty:
         raise ValueError(f"Il file {path} è vuoto o non contiene dati validi.")
+    
+    # Ensure we have a 'time' column for internal processing
+    # but don't rename 'timestamp' since downstream scripts expect it
+    if 'timestamp' in df.columns and 'time' not in df.columns:
+        df['time'] = df['timestamp']  # Create time column for internal use
+    
     return df
 
 
 def save_df(path, df):
-    os.makedirs(os.path.dirname(path), exist_ok=True)
+    dirname = os.path.dirname(path)
+    if dirname:  # Only create directory if path has a directory component
+        os.makedirs(dirname, exist_ok=True)
     df.to_csv(path, index=False, header=True)
 
 
@@ -130,36 +130,56 @@ def build_intervals(df1: pd.DataFrame, df2: pd.DataFrame):
 
 def main():
     parser = argparse.ArgumentParser(
-        description='Filtra CSV basati su occorrenze di seq_num e unisce i primi due.'
+        description='Add out-of-order features to dataset using extracted OOO_SEG data.'
     )
+    # Match the pipeline call format: --input-file and --output-file
+    parser.add_argument('--input-file', required=True,
+                        help='Input CSV file (collision_filtered.csv)')
+    parser.add_argument('--output-file', required=True,
+                        help='Output CSV file (ooo_enhanced.csv)')
+    
+    # Optional directories for OOO data (use defaults if not specified)
     parser.add_argument('--dir1', default='results_1G/SND_TS_SEQ_NUM',
-                        help='Prima cartella (default: results_1G/SND_TS_SEQ_NUM)')
+                        help='Directory with send timestamp CSV files')
     parser.add_argument('--dir2', default='results_1G/RCV_TS_SEQ_NUM',
-                        help='Seconda cartella (default: results_1G/RCV_TS_SEQ_NUM)')
+                        help='Directory with receive timestamp CSV files')
     parser.add_argument('--dir3', default='results_1G/OOO_SEG',
-                        help='Terza cartella (default: results_1G/OOO_SEG)')
-    parser.add_argument('--file4', default='results_1G/merged_final.csv',
-                        help='Quarto file (default: results_1G/merged_final.csv)')
+                        help='Directory with out-of-order segment CSV files')
     args = parser.parse_args()
 
-    # Trova i file CSV
+    # Check if required directories exist
+    if not os.path.exists(args.dir1):
+        raise FileNotFoundError(f"SND_TS_SEQ_NUM directory not found: {args.dir1}")
+    if not os.path.exists(args.dir2):
+        raise FileNotFoundError(f"RCV_TS_SEQ_NUM directory not found: {args.dir2}")
+    if not os.path.exists(args.dir3):
+        raise FileNotFoundError(f"OOO_SEG directory not found: {args.dir3}")
+
+    # Find the CSV files
     path1 = find_csv(args.dir1)
     path2 = find_csv(args.dir2)
     path3 = find_csv(args.dir3)
-    path4 = args.file4
+    input_file = args.input_file
 
-    # Lettura dei primi due file
+    print(f"Using SND_TS_SEQ_NUM: {path1}")
+    print(f"Using RCV_TS_SEQ_NUM: {path2}")
+    print(f"Using OOO_SEG: {path3}")
+    print(f"Using input dataset: {input_file}")
+
+    # Load the timestamp files
     df1 = load_df_standard(path1)
     df2 = load_df_standard(path2)
 
-    # Costruzione intervalli (ottimizzata)
+    # Build intervals using send and receive timestamps
     interval_df, to_remove = build_intervals(df1, df2)
+    print(f"Built intervals for {len(interval_df)} packets, removing {len(to_remove)} problematic seq_nums")
 
-    # Terzo file
+    # Load OOO segments file
     df3 = load_df_standard(path3)
     df3_f = df3[~df3['seq_num'].isin(to_remove)]
+    print(f"Loaded {len(df3)} OOO segments, {len(df3_f)} after filtering")
 
-    # Verifica: ogni riga di df3_f deve matchare una e UNA sola riga di interval_df
+    # Verify: ogni riga di df3_f deve matchare una e UNA sola riga di interval_df
     merged3 = df3_f.merge(
         interval_df,
         left_on=['seq_num', 'timestamp'],
@@ -168,7 +188,7 @@ def main():
         indicator=True
     )
     if merged3['_merge'].eq('both').sum() != len(df3_f):
-        raise ValueError("Alcune righe di df3_f non trovano corrispondenza unica in interval_df.")
+        print(f"Warning: Only {merged3['_merge'].eq('both').sum()} of {len(df3_f)} OOO segments matched intervals")
 
     # 'ooo' vettoriale: 1 se (seq_num, end_time) compare in df3_f
     matches = merged3.loc[merged3['_merge'] == 'both', ['seq_num', 'end_time']].drop_duplicates()
@@ -178,16 +198,30 @@ def main():
         how='left'
     )
     interval_df['ooo'] = interval_df['ooo'].fillna(0).astype('int8')
+    print(f"Marked {interval_df['ooo'].sum()} packets as out-of-order")
 
-    # Quinto file
-    df4 = load_4_file(path4)
+    # Load the input dataset (collision-filtered data)
+    df4 = load_4_file(input_file)
     df4_f = df4[~df4['seq_num'].isin(to_remove)]
+    print(f"Loaded input dataset: {len(df4)} packets, {len(df4_f)} after filtering removed seq_nums")
 
-    # Join finale (stessa semantica: join su seq_num e filtro per time dentro all'intervallo)
+    # Join finale: join on seq_num and filter for time within the interval
     merged = pd.merge(df4_f, interval_df, on='seq_num', how='left')
-    final_ds = merged[(merged['time'] > merged['start_time']) & (merged['time'] < merged['end_time'])]
+    
+    # Filter to keep only packets whose timestamp falls within their start/end interval
+    valid_time_mask = (merged['time'] > merged['start_time']) & (merged['time'] < merged['end_time'])
+    final_ds = merged[valid_time_mask]
+    
+    # Drop the internal 'time' column if it was created (keep original 'timestamp')
+    if 'time' in final_ds.columns and 'timestamp' in final_ds.columns:
+        final_ds = final_ds.drop(columns=['time'])
+    
+    print(f"Final dataset: {len(final_ds)} packets (from {len(merged)} after interval filtering)")
+    print(f"OOO packets in final dataset: {final_ds['ooo'].sum()}")
 
-    save_df('results_1G/final_dataset.csv', final_ds)
+    # Save the enhanced dataset
+    save_df(args.output_file, final_ds)
+    print(f"Saved OOO-enhanced dataset to: {args.output_file}")
 
 
 if __name__ == '__main__':

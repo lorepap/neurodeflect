@@ -41,45 +41,29 @@ class DatacenterDeflectionEnv(gym.Env):
         self.dataset = pd.read_csv(dataset_path)
         print(f"Loaded dataset with {len(self.dataset)} records")
         
-        # Handle different threshold column names
-        if 'threshold' in self.dataset.columns:
-            threshold_col = 'threshold'
-        elif 'deflection_threshold' in self.dataset.columns:
-            threshold_col = 'deflection_threshold'
-        else:
-            raise ValueError("Dataset must contain either 'threshold' or 'deflection_threshold' column")
+        # Define optimal real-time features for line-rate inference
+        # Based on discriminative power analysis: threshold_pressure (5.84x), ttl_priority (5.46x), queue_utilization (4.51x)
         
-        # Extract features based on available columns
-        feature_columns = []
-        
-        # Map available columns to our standard features
-        column_mapping = {
-            'occupancy': 'queue_length',
-            'capacity': 'arrival_rate', 
-            'total_capacity': 'service_rate',
-            'total_occupancy': 'utilization',
-            threshold_col: 'threshold',
-            'timestamp': 'load'  # Use timestamp as a proxy for load
-        }
-        
-        # Build feature matrix from available columns
+        # Extract base features
         feature_data = []
         self.feature_names = []
         
-        for original_col, standard_name in column_mapping.items():
-            if original_col in self.dataset.columns:
-                feature_data.append(self.dataset[original_col].values)
-                self.feature_names.append(standard_name)
+        # 1. Queue utilization (most fundamental congestion indicator)
+        queue_utilization = self.dataset['occupancy'] / (self.dataset['capacity'] + 1e-8)
+        feature_data.append(queue_utilization.values)
+        self.feature_names.append('queue_utilization')
         
-        # If we don't have enough features, add derived ones
-        if len(feature_data) < 6:
-            # Add utilization ratio if we have occupancy and capacity
-            if 'occupancy' in self.dataset.columns and 'capacity' in self.dataset.columns:
-                util_ratio = self.dataset['occupancy'] / (self.dataset['capacity'] + 1e-8)
-                feature_data.append(util_ratio.values)
-                self.feature_names.append('utilization_ratio')
+        # 2. Threshold pressure (policy-aware feature)
+        threshold_pressure = queue_utilization / (self.dataset['deflection_threshold'] + 1e-8)
+        feature_data.append(threshold_pressure.values)
+        self.feature_names.append('threshold_pressure')
         
-        # Combine features
+        # 3. TTL priority (packet urgency - higher value = more hops traveled)
+        ttl_priority = (250 - self.dataset['ttl']) / 250.0
+        feature_data.append(ttl_priority.values)
+        self.feature_names.append('ttl_priority')
+        
+        # Combine features into state matrix
         self.features = np.column_stack(feature_data)
         
         # Extract actions (map to our action space)
@@ -95,6 +79,20 @@ class DatacenterDeflectionEnv(gym.Env):
         print(f"Feature matrix shape: {self.features.shape}")
         print(f"Action range: {self.actions.min()} to {self.actions.max()}")
         
+        # Define observation and action spaces
+        n_features = self.features.shape[1]
+        self.observation_space = spaces.Box(
+            low=-np.inf, 
+            high=np.inf, 
+            shape=(n_features,), 
+            dtype=np.float32
+        )
+        
+        # Action space: 0=forward, 1=deflect, 2=drop (but our data only has 0,1)
+        unique_actions = np.unique(self.actions)
+        n_actions = max(len(unique_actions), 3)  # At least 3 actions
+        self.action_space = spaces.Discrete(n_actions)
+        
         # Normalize features if requested
         if normalize_states:
             self.feature_mean = np.mean(self.features, axis=0)
@@ -106,6 +104,17 @@ class DatacenterDeflectionEnv(gym.Env):
         self.current_index = 0
         self.max_steps = max_steps
         self.step_count = 0
+        self.episode_length = max_steps  # Add missing episode_length attribute
+        
+        # Reward configuration
+        if reward_config is None:
+            self.reward_config = self._default_reward_config()
+        else:
+            self.reward_config = reward_config
+        
+        # Additional attributes needed for environment
+        self.normalize_states = normalize_states
+        self.current_episode_data = None
     
     def _default_reward_config(self) -> Dict:
         """Default reward engineering configuration."""
@@ -159,35 +168,27 @@ class DatacenterDeflectionEnv(gym.Env):
     def _sample_episode_data(self):
         """Sample a random episode from the dataset."""
         # Ensure we have enough data for an episode
-        max_start = max(0, len(self.dataset) - self.episode_length)
+        max_start = max(0, len(self.features) - self.episode_length)
         
         if max_start == 0:
             # Dataset smaller than episode length, use entire dataset
             start_idx = 0
-            end_idx = len(self.dataset)
+            end_idx = len(self.features)
         else:
             # Random start position
             start_idx = np.random.randint(0, max_start)
             end_idx = start_idx + self.episode_length
         
         # Extract episode data
-        episode_indices = slice(start_idx, end_idx)
-        
-        if self.normalization:
-            episode_states = self.normalized_features.iloc[episode_indices].values
-        else:
-            episode_states = self.state_features.iloc[episode_indices].values
-            
-        episode_actions = self.actions[episode_indices]
-        episode_thresholds = self.thresholds[episode_indices]
-        episode_timestamps = self.timestamps[episode_indices]
+        episode_states = self.features[start_idx:end_idx]
+        episode_actions = self.actions[start_idx:end_idx]
         
         return {
             'states': episode_states,
             'actions': episode_actions,
-            'thresholds': episode_thresholds,
-            'timestamps': episode_timestamps,
-            'indices': (start_idx, end_idx)
+            'start_idx': start_idx,
+            'end_idx': end_idx,
+            'current_step': 0
         }
     
     def _compute_reward(self, state: np.ndarray, action: int, next_state: np.ndarray) -> float:
@@ -197,40 +198,35 @@ class DatacenterDeflectionEnv(gym.Env):
         """
         reward = 0.0
         
-        # Extract current queue utilization (state[2] = occupancy, state[0] = capacity)
-        current_util = state[2] / (state[0] + 1e-8)
-        next_util = next_state[2] / (next_state[0] + 1e-8)
+        # Since our states are normalized, we need to be careful with reward calculation
+        # Let's use a simpler reward function for normalized states
         
-        # 1. Queue occupancy penalty - penalize high utilization
-        queue_penalty = current_util * self.reward_config['queue_penalty_weight']
-        reward += queue_penalty
-        
-        # 2. Action-specific rewards/penalties
+        # 1. Base reward for action taken
         if action == 0:  # Forward normally
             reward += self.reward_config['baseline_reward']
-            
         elif action == 1:  # Deflect packet
-            # Small cost for deflection but potential benefit if it reduces congestion
             reward += self.reward_config['deflection_cost']
-            
-            # Bonus if deflection helps reduce future queue utilization
-            if next_util < current_util:
-                reward += 0.1 * (current_util - next_util)
-                
-        elif action == 2:  # Drop packet
-            # Large penalty for dropping packets
+        else:  # Drop or other
             reward += self.reward_config['drop_penalty']
         
-        # 3. Network efficiency reward
-        # Reward maintaining low overall network utilization
-        total_util = state[3] / (state[1] + 1e-8)  # total_occupancy / total_capacity
-        efficiency_reward = (1.0 - total_util) * self.reward_config['throughput_reward'] * 0.1
-        reward += efficiency_reward
+        # 2. Simple state-based reward (since states are normalized)
+        # Penalize extreme values (both positive and negative since normalized)
+        state_penalty = -0.01 * np.sum(np.abs(state))
+        reward += state_penalty
         
-        # 4. TTL-based latency penalty
-        # Higher TTL indicates more network hops/latency
-        ttl_penalty = (250 - state[5]) / 250.0 * self.reward_config['latency_penalty_weight'] * 0.1
-        reward += ttl_penalty
+        # 3. Reward for state improvement (if next state has lower absolute values)
+        if len(state) == len(next_state):
+            state_improvement = np.sum(np.abs(state)) - np.sum(np.abs(next_state))
+            reward += 0.05 * state_improvement
+        
+        # 4. Threshold-based reward (encourage lower thresholds which should be more efficient)
+        if len(state) > 4:  # threshold is at index 4
+            # Since normalized, lower values are better
+            threshold_reward = -0.02 * state[4]  # Lower normalized threshold gets positive reward
+            reward += threshold_reward
+        
+        # Clip reward to reasonable range
+        reward = np.clip(reward, -10.0, 10.0)
         
         return reward
     
@@ -252,8 +248,8 @@ class DatacenterDeflectionEnv(gym.Env):
         
         info = {
             'episode_length': len(self.current_episode_data['states']),
-            'threshold': self.current_episode_data['thresholds'][0],
-            'timestamp': self.current_episode_data['timestamps'][0]
+            'start_idx': self.current_episode_data['start_idx'],
+            'end_idx': self.current_episode_data['end_idx']
         }
         
         return initial_state, info
@@ -286,15 +282,15 @@ class DatacenterDeflectionEnv(gym.Env):
         self.reward_history.append(reward)
         
         # Prepare info
+        original_action = self.current_episode_data['actions'][self.current_step - 1] if self.current_step - 1 < len(self.current_episode_data['actions']) else action
+        
         info = {
             'step': self.current_step - 1,
-            'original_action': self.current_episode_data['actions'][self.current_step - 1],
-            'threshold': self.current_episode_data['thresholds'][self.current_step - 1],
-            'timestamp': self.current_episode_data['timestamps'][self.current_step - 1],
+            'original_action': original_action,
             'reward_components': {
-                'queue_utilization': current_state[2] / (current_state[0] + 1e-8),
-                'total_utilization': current_state[3] / (current_state[1] + 1e-8),
-                'ttl': current_state[5]
+                'queue_utilization': current_state[0] if len(current_state) > 0 else 0.0,
+                'action_taken': action,
+                'step_reward': reward
             }
         }
         
@@ -305,6 +301,11 @@ class DatacenterDeflectionEnv(gym.Env):
             observation = current_state.astype(np.float32)
             
             # Add episode summary to info
+            info['episode_summary'] = {
+                'total_reward': sum(self.reward_history),
+                'average_reward': np.mean(self.reward_history) if self.reward_history else 0.0,
+                'episode_length': len(self.reward_history)
+            }
             info['episode_summary'] = {
                 'total_reward': sum(self.reward_history),
                 'average_reward': np.mean(self.reward_history),

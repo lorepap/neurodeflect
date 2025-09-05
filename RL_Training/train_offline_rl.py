@@ -176,7 +176,7 @@ class OfflineRLTrainer:
         """
         states, actions, rewards, log_probs, values, dones = [], [], [], [], [], []
         
-        state = self.env.reset()
+        state, info = self.env.reset()
         total_reward = 0
         
         for step in range(max_steps):
@@ -185,7 +185,7 @@ class OfflineRLTrainer:
             value = self.agent.get_value(state)
             
             # Take step in environment
-            next_state, reward, done, info = self.env.step(action)
+            next_state, reward, done, truncated, info = self.env.step(action)
             
             # Store data
             states.append(state.copy())
@@ -366,17 +366,17 @@ class OfflineRLTrainer:
         episode_lengths = []
         
         for episode in range(num_episodes):
-            state = self.env.reset()
+            state, info = self.env.reset()
             total_reward = 0
             steps = 0
             
             while True:
                 action, _ = self.agent.get_action(state, deterministic=deterministic)
-                state, reward, done, info = self.env.step(action)
+                state, reward, done, truncated, info = self.env.step(action)
                 total_reward += reward
                 steps += 1
                 
-                if done or steps >= 100:  # Max steps for evaluation
+                if done or truncated or steps >= 100:  # Max steps for evaluation
                     break
             
             episode_rewards.append(total_reward)
@@ -452,7 +452,7 @@ def main():
     parser = argparse.ArgumentParser(description='Offline RL Training for Datacenter Deflection')
     
     parser.add_argument('--dataset', type=str, 
-                       default='/home/ubuntu/practical_deflection/threshold_combined_dataset.csv',
+                       default='/home/ubuntu/practical_deflection/Omnet_Sims/dc_simulations/simulations/sims/combined_threshold_dataset.csv',
                        help='Path to the threshold dataset')
     parser.add_argument('--epochs', type=int, default=100,
                        help='Number of training epochs')

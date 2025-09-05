@@ -1,11 +1,11 @@
-mkdir logs
-mkdir figs
-mkdir extracted_results
-#sudo mkdir extracted_results/FLOW_ENDED
-#sudo mkdir extracted_results/FLOW_ENDED_QUERY_ID
-#sudo mkdir extracted_results/FLOW_STARTED
-#sudo mkdir extracted_results/FLOW_STARTED_ACTUAL_TIME
-#sudo mkdir extracted_results/REQUEST_SENT
+mkdir -p logs
+mkdir -p figs
+mkdir -p extracted_results
+mkdir -p extracted_results/FLOW_ENDED
+# mkdir -p extracted_results/FLOW_ENDED_QUERY_ID
+mkdir -p extracted_results/FLOW_STARTED
+# mkdir -p extracted_results/FLOW_STARTED_ACTUAL_TIME
+mkdir -p extracted_results/REQUEST_SENT
 #sudo mkdir extracted_results/NO_JITTER_REQUEST_SENT
 #sudo mkdir extracted_results/PACKET_RCVED_APP_LAYER
 #sudo mkdir extracted_results/OOO_SEG_NUM
@@ -18,7 +18,7 @@ mkdir extracted_results
 #sudo mkdir extracted_results/GRO_DELAYED_SEGMENT_LENGTH
 #sudo mkdir extracted_results/RTT
 #sudo mkdir extracted_results/BYTES_REQUESTED_FROM_SERVER
-#sudo mkdir extracted_results/REPLY_LENGTH_ASKED
+mkdir -p extracted_results/REPLY_LENGTH_ASKED
 #sudo mkdir extracted_results/DROP_SENDER_NAMES
 #sudo mkdir extracted_results/DROP_RECEIVER_NAMES
 #sudo mkdir extracted_results/DROPS
@@ -75,22 +75,24 @@ mkdir extracted_results
 #sudo mkdir extracted_results/SHARED_MEM_LEN_BYTES
 #sudo mkdir extracted_results/PKT_RANK
 #sudo mkdir extracted_results/EXTRA
-#sudo mkdir extracted_results/REQUESTER_ID
-#sudo mkdir extracted_results/PACKET_UNIQUE_ID
-sudo mkdir extracted_results/QUEUE_LEN
-sudo mkdir extracted_results/QUEUES_TOT_LEN
-sudo mkdir extracted_results/QUEUE_CAPACITY
-sudo mkdir extracted_results/QUEUES_TOT_CAPACITY
-sudo mkdir extracted_results/PACKET_ACTION
-sudo mkdir extracted_results/RCV_TS_SEQ_NUM
-sudo mkdir extracted_results/SND_TS_SEQ_NUM
-sudo mkdir extracted_results/OOO_SEG
-sudo mkdir extracted_results/SWITCH_SEQ_NUM
-sudo mkdir extracted_results/RETRANSMITTED
-sudo mkdir extracted_results/TTL
-sudo mkdir extracted_results/ACTION_SEQ_NUM
-sudo mkdir extracted_results/SWITCH_ID
-sudo mkdir extracted_results/SWITCH_ID_ACTION
-sudo mkdir extracted_results/INTERFACE_ID
+mkdir -p extracted_results/REQUESTER_ID
+mkdir -p extracted_results/PACKET_UNIQUE_ID
+mkdir -p extracted_results/QUEUE_LEN
+mkdir -p extracted_results/QUEUES_TOT_LEN
+mkdir -p extracted_results/QUEUE_CAPACITY
+mkdir -p extracted_results/QUEUES_TOT_CAPACITY
+mkdir -p extracted_results/PACKET_ACTION
+mkdir -p extracted_results/RCV_TS_SEQ_NUM
+mkdir -p extracted_results/SND_TS_SEQ_NUM
+mkdir -p extracted_results/OOO_SEG
+mkdir -p extracted_results/SWITCH_SEQ_NUM
+mkdir -p extracted_results/RETRANSMITTED
+mkdir -p extracted_results/TTL
+mkdir -p extracted_results/ACTION_SEQ_NUM
+mkdir -p extracted_results/SWITCH_ID
+mkdir -p extracted_results/SWITCH_ID_ACTION
+mkdir -p extracted_results/INTERFACE_ID
+mkdir -p extracted_results/FLOW_ID
+mkdir -p extracted_results/PACKET_SIZE
 
 #sudo mkdir extracted_results/CLIENT_SEQ_NUM

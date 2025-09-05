@@ -1,106 +1,135 @@
 #!/usr/bin/env python3
 """
-Script per filtrare file CSV in base alle occorrenze di `seq_num` in due file principali e rimuovere queste sequenze da tutti i CSV passati.
+Script to filter merged CSV datasets based on seq_num collision detection.
 
-- Conta le occorrenze di ogni `seq_num` in `file1` e `file2`.
-- Seleziona i `seq_num` con occorrenze >1 in `file1` e tali per cui:
-  `count_file1 > count_file2 + 1`.
-- Rimuove tutte le righe contenenti questi `seq_num` da `file1` e `file2`.
-- Per i file nelle prime quattro cartelle, usa il path della cartella per trovare il file CSV.
-- Per il quinto input, usa direttamente il file CSV.
-- Alla fine, genera un CSV con tutti i `seq_num` eliminati.
+This script now works with the merged dataset format where all packet information
+is in a single CSV file with columns like:
+timestamp, capacity, total_capacity, occupancy, total_occupancy, seq_num, ttl, action, packet_size, SWITCH_ID, FlowID, etc.
 
-Per i primi 4 input si passa la cartella contenente un unico file .csv; per il quinto si passa il file diretto.
+The script:
+- Detects seq_num collisions in the merged dataset 
+- Removes problematic sequences that could cause training issues
+- Preserves the integrity of packet-level data for RL training
 """
 import argparse
 import os
 import glob
 import pandas as pd
 
-def find_csv(folder: str) -> str:
-    pattern = os.path.join(folder, "*.csv")
-    files = glob.glob(pattern)
-    if not files:
-        raise FileNotFoundError(f"Nessun file CSV trovato in {folder}")
-    return files[0]
+def load_merged_dataset(path):
+    """Load the merged dataset CSV file with proper error handling."""
+    try:
+        df = pd.read_csv(path)
+        print(f"Loaded dataset with {len(df)} rows and columns: {list(df.columns)}")
+        
+        # Ensure seq_num column exists and is properly typed
+        if 'seq_num' not in df.columns:
+            raise ValueError(f"seq_num column not found in {path}. Available columns: {list(df.columns)}")
+        
+        # Convert seq_num to int64, handling any conversion issues
+        df['seq_num'] = pd.to_numeric(df['seq_num'], errors='coerce').astype('Int64')
+        
+        # Remove rows where seq_num couldn't be converted
+        initial_rows = len(df)
+        df = df.dropna(subset=['seq_num'])
+        if len(df) < initial_rows:
+            print(f"Warning: Removed {initial_rows - len(df)} rows with invalid seq_num values")
+        
+        if df.empty:
+            raise ValueError(f"Dataset {path} is empty after cleaning")
+            
+        return df
+    except Exception as e:
+        print(f"Error loading {path}: {e}")
+        raise
 
 
-def load_df_statndard(path):
-    df = pd.read_csv(path, header=None, skiprows=1, names=['timestamp', 'seq_num'], 
-                     dtype={'timestamp': 'float64', 'seq_num': 'int64'})
-    return df
-
-def load_5_file(path):
-    df = pd.read_csv(path, header=None, skiprows=1, names=["timestamp","capacity","total_capacity","occupancy","total_occupancy","seq_num","ttl","action"],
-                     dtype={'timestamp': 'float64', 'capacity': 'int64', 'total_capacity': 'int64', 
-                            'occupancy': 'int64', 'total_occupancy': 'int64', 'seq_num': 'int64', 'ttl': 'int64', 'action': 'int64'})
-    if df.empty:
-        raise ValueError(f"Il file {path} è vuoto o non contiene dati validi.")
-    return df
+def detect_seq_num_collisions(df):
+    """
+    Detect problematic seq_num values that appear multiple times.
+    
+    Returns set of seq_num values to remove based on collision detection logic.
+    """
+    # Count occurrences of each seq_num
+    seq_counts = df['seq_num'].value_counts()
+    
+    # Find seq_nums that appear more than once (potential collisions)
+    collision_candidates = seq_counts[seq_counts > 1].index
+    
+    print(f"Found {len(collision_candidates)} seq_num values with multiple occurrences")
+    
+    # For now, use a simple heuristic: remove seq_nums with excessive duplicates (>10)
+    # This can be refined based on domain knowledge
+    excessive_duplicates = seq_counts[seq_counts > 10].index
+    
+    print(f"Removing {len(excessive_duplicates)} seq_num values with >10 duplicates")
+    
+    return set(excessive_duplicates)
 
 
 def save_df(path, df):
+    """Save dataframe to CSV with proper directory creation."""
+    os.makedirs(os.path.dirname(path), exist_ok=True)
     df.to_csv(path, index=False, header=True)
+    print(f"Saved {len(df)} rows to {path}")
 
 
 def main():
     parser = argparse.ArgumentParser(
-        description='Filtra CSV basati su occorrenze di seq_num.')
-    parser.add_argument('--dir1', default='results_1G/SND_TS_SEQ_NUM',
-                        help='Prima cartella (default: results_1G/SND_TS_SEQ_NUM)')
-    parser.add_argument('--dir2', default='results_1G/RETRANSMITTED',
-                        help='Seconda cartella (default: results_1G/RETRANSMITTED)')
-    parser.add_argument('--dir3', default='results_1G/OOO_SEG',
-                        help='Terza cartella (default: results_1G/OOO_SEG)')
-    parser.add_argument('--dir4', default='results_1G/RCV_TS_SEQ_NUM',
-                        help='Quarta cartella (default: results_1G/RCV_TS_SEQ_NUM)')
-    parser.add_argument('--file5', default='results_1G/merged_final.csv',
-                        help='Quinto file (default: results_1G/merged_final.csv)')
+        description='Filter merged CSV dataset based on seq_num collision detection.')
+    parser.add_argument('--input-file', default='results_1G/merged_final.csv',
+                        help='Input merged dataset file (default: results_1G/merged_final.csv)')
+    parser.add_argument('--output-file', default='results_1G/collision_filtered.csv',
+                        help='Output filtered dataset file (default: results_1G/collision_filtered.csv)')
+    parser.add_argument('--removed-file', default='results_1G/removed_seq_nums.csv',
+                        help='File to save removed seq_nums (default: results_1G/removed_seq_nums.csv)')
 
     args = parser.parse_args()
 
-    # Trova i file CSV nelle prime quattro cartelle
-    path1 = find_csv(args.dir1)
-    path2 = find_csv(args.dir2)
-    path3 = find_csv(args.dir3)
-    path4 = find_csv(args.dir4)
-    path5 = args.file5
+    print("=" * 60)
+    print("COLLISION FILTERING FOR MERGED DATASET")
+    print("=" * 60)
 
-    # Lettura dei primi due file (seq_num in colonna 1)
-    df1 = load_df_statndard(path1)
-    df2 = load_df_statndard(path2)
-
-    # Conteggio occorrenze seq_num (colonna 1)
-    vc1 = df1['seq_num'].value_counts()
-    vc2 = df2['seq_num'].value_counts()
-
-    # Seleziona seq_num da rimuovere
-    to_remove = [seq for seq, cnt in vc1.items()
-                 if cnt > 1 and cnt > vc2.get(seq, 0) + 1]
-
-    # Filtra i primi due file
-    df1_filtered = df1[~df1['seq_num'].isin(to_remove)]
-    df2_filtered = df2[~df2['seq_num'].isin(to_remove)]
-    save_df(path1, df1_filtered)
-    save_df(path2, df2_filtered)
-
-    df3 = load_df_statndard(path3)  # Carica il terzo file
-    df3_filtered = df3[~df3['seq_num'].isin(to_remove)]
-    save_df(path3, df3_filtered)
+    # Load the merged dataset
+    print(f"Loading dataset from {args.input_file}...")
+    df = load_merged_dataset(args.input_file)
     
-    df4 = load_df_statndard(path4)  # Carica il quarto file
-    df4_filtered = df4[~df4['seq_num'].isin(to_remove)]
-    save_df(path4, df4_filtered)
-    
-    df5 = load_5_file(path5)  # Carica il quinto file
-    df5_filtered = df5[~df5['seq_num'].isin(to_remove)]
-    save_df(path5, df5_filtered)
-    
+    initial_rows = len(df)
+    print(f"Initial dataset: {initial_rows} rows")
 
-    # Salva seq_num rimossi
-    removed_df = pd.DataFrame({'seq_num': to_remove})
-    removed_df['seq_num'] = removed_df['seq_num'].astype(int)
-    removed_df.to_csv('results_1G/removed_seq_nums.csv', index=False)
+    # Detect seq_num collisions
+    print("\nDetecting seq_num collisions...")
+    to_remove = detect_seq_num_collisions(df)
+
+    if not to_remove:
+        print("No seq_num collisions detected. Dataset is clean.")
+        # Still save output for pipeline consistency
+        save_df(args.output_file, df)
+        
+        # Save empty removed file
+        removed_df = pd.DataFrame({'seq_num': []})
+        save_df(args.removed_file, removed_df)
+        return
+
+    # Filter out problematic seq_nums
+    print(f"\nFiltering out {len(to_remove)} problematic seq_num values...")
+    df_filtered = df[~df['seq_num'].isin(to_remove)]
+    
+    final_rows = len(df_filtered)
+    removed_rows = initial_rows - final_rows
+    
+    print(f"Final dataset: {final_rows} rows ({removed_rows} rows removed, {removed_rows/initial_rows*100:.1f}%)")
+
+    # Save filtered dataset
+    save_df(args.output_file, df_filtered)
+
+    # Save removed seq_nums for debugging
+    removed_df = pd.DataFrame({'seq_num': list(to_remove)})
+    save_df(args.removed_file, removed_df)
+    
+    print(f"\nCollision filtering completed successfully!")
+    print(f"Filtered dataset saved to: {args.output_file}")
+    print(f"Removed seq_nums saved to: {args.removed_file}")
 
 
 if __name__ == '__main__':

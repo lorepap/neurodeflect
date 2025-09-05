@@ -31,7 +31,7 @@ def first_csv_in(folder: str) -> str:
     return files[0]
 
 
-def zip_first_six(folders, names):
+def zip_first_seven(folders, names):
     """
     Restituisce un DataFrame con 1 + len(folders) colonne:
         timestamp, <name1>, <name2>, ..., <nameN>
@@ -95,7 +95,7 @@ def main():
     parser = argparse.ArgumentParser(
         description="Unisci 8 CSV seguendo la logica di zipping + join finale"
     )
-    # --- primi 6 ---
+    # --- primi 7 ---
     parser.add_argument("--folder1", default="results_1G/QUEUE_CAPACITY")
     parser.add_argument("--name1",   default="capacity")
     parser.add_argument("--folder2", default="results_1G/QUEUES_TOT_CAPACITY")
@@ -108,37 +108,39 @@ def main():
     parser.add_argument("--name5",   default="seq_num")
     parser.add_argument("--folder6", default="results_1G/TTL")
     parser.add_argument("--name6",   default="ttl")
+    parser.add_argument("--folder7", default="results_1G/PACKET_SIZE")
+    parser.add_argument("--name7",   default="packet_size")
 
     # --- ultimi 2 ---
-    parser.add_argument("--folder7", default="results_1G/ACTION_SEQ_NUM")
-    parser.add_argument("--name7",   default="seq_num")
-    parser.add_argument("--folder8", default="results_1G/PACKET_ACTION")
-    parser.add_argument("--name8",   default="action")
+    parser.add_argument("--folder8", default="results_1G/ACTION_SEQ_NUM")
+    parser.add_argument("--name8",   default="seq_num")
+    parser.add_argument("--folder9", default="results_1G/PACKET_ACTION")
+    parser.add_argument("--name9",   default="action")
 
     parser.add_argument("--output",   default="results_1G/merged_final.csv")
     args = parser.parse_args()
 
-    # 1) Zipping dei primi 6
+    # 1) Zipping dei primi 7
     first_folders = [
         args.folder1, args.folder2, args.folder3,
-        args.folder4, args.folder5, args.folder6
+        args.folder4, args.folder5, args.folder6, args.folder7
     ]
     first_names   = [
         args.name1, args.name2, args.name3,
-        args.name4, args.name5, args.name6
+        args.name4, args.name5, args.name6, args.name7
     ]
-    df_first = zip_first_six(first_folders, first_names)
+    df_first = zip_first_seven(first_folders, first_names)
 
     # 2) Zipping degli ultimi 2 -> timestamp, seq_num, action
     df_second = zip_last_two(
-        args.folder7, args.name7,
-        args.folder8, args.name8
+        args.folder8, args.name8,
+        args.folder9, args.name9
     )
 
     # 3) Se necessario, allineo il nome seq_num
     join_keys = ['timestamp', args.name5]
-    if args.name7 != args.name5:
-        df_second = df_second.rename(columns={args.name7: args.name5})
+    if args.name8 != args.name5:
+        df_second = df_second.rename(columns={args.name8: args.name5})
 
     # 4) Log duplicati su ['timestamp', 'seq_num']
     dup1 = df_first[df_first.duplicated(join_keys, keep=False)]
@@ -158,11 +160,11 @@ def main():
     # 5) Join finale su timestamp + seq_num
     merged = pd.merge(
         df_first,
-        df_second[['timestamp', args.name5, args.name8]],
+        df_second[['timestamp', args.name5, args.name9]],
         on=join_keys,
         how='left'
     )
-    merged[args.name8] = merged[args.name8].fillna(2).astype('int32')
+    merged[args.name9] = merged[args.name9].fillna(2).astype('int32')
 
     merged.to_csv(args.output, index=False)
     print(f"Dati uniti salvati in {args.output}")

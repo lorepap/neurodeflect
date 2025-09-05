@@ -44,7 +44,7 @@ simple BouncingIeee8021dRelay like IMacRelayUnit
         ////@signal[feedBackPacketGenerated]();
         ////@signal[bounceLimitPassed]();
         ////@signal[burstyPacketReceived]();
-        //@signal[requesterID](type=long); // Segnale per il requesterID
+    @signal[requesterID](type=long); // Segnale per il requesterID
         //@signal[packetUniqueID](type=long); // Segnale per l'ID univoco del pacchetto
         @signal[queueLen](type=long); // Segnale per la lunghezza della coda
         @signal[queuesTotLen](type=long); // Segnale per la lunghezza totale delle code
@@ -54,7 +54,9 @@ simple BouncingIeee8021dRelay like IMacRelayUnit
         @signal[switchSeqNum](type=int); // Sequence number for the switch
         @signal[switchTtl](type=short); // Time to live for the switch
         @signal[actionSeqNum](type=int); // Sequence number for the action taken on the packet
-        //@signal[switchId](type=int); // Switch ID for the packet
+        @signal[switchId](type=int); // Switch ID for the packet
+        @signal[flowId](type=long); // True flow ID for the packet (5-tuple hash without sequence number)
+        @signal[packetSize](type=long); // Packet size in bytes
         //@signal[switchIdAction](type=int); // Switch ID for the action taken on the packet
         //@signal[interfaceId](type=int); // Interface ID for the packet
         
@@ -63,7 +65,10 @@ simple BouncingIeee8021dRelay like IMacRelayUnit
         ////@statistic[FBPacketGenerated](title="feedback packet generated"; source="feedBackPacketGenerated"; record=count; interpolationmode=none);
         ////@statistic[FBBouncePassed](title="bounce limit passed"; source="bounceLimitPassed"; record=count; interpolationmode=none);
         ////@statistic[BurstyPacketReceived](title="bounce limit passed"; source="burstyPacketReceived"; record="vector"; interpolationmode=none);
-        //@statistic[RequesterID](title="Requester ID"; source="requesterID"; record=vector,stats; interpolationmode=none); // Registra il vettore con indice
+    @statistic[RequesterID](title="Requester ID"; source="requesterID"; record=vector,stats; interpolationmode=none); // Registra il vettore con indice
+    @statistic[switchId](title="Switch ID"; source="switchId"; record=vector,stats; interpolationmode=none);
+    @statistic[FlowID](title="Flow ID"; source="flowId"; record=vector,stats; interpolationmode=none); // True flow ID from 5-tuple
+    // PacketSize statistic moved to network level (LeafSpine1G.ned) for aggregation
         //@statistic[PacketUniqueID](title="Packet Unique ID"; source="packetUniqueID"; record=vector,stats; interpolationmode=none); // Registra l'ID univoco del pacchetto
         //@statistic[QueueLen](title="Queue Length"; source="queueLen"; record=vector,stats; interpolationmode=none); // Registra la lunghezza della coda
         //@statistic[QueuesTotLen](title="Total Queues Length"; source="queuesTotLen"; record=vector,stats; interpolationmode=none); // Registra la lunghezza totale delle code

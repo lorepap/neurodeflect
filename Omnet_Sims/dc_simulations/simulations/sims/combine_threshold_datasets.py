@@ -22,8 +22,8 @@ def combine_threshold_datasets(thresholds_str):
     print(f"Combining datasets for thresholds: {thresholds}")
     
     # Buffer capacity in bytes (from omnetpp_1G.ini configuration)
-    # DCTCP_SD_THRESHOLD_VARIATION sets dataCapacity = 200000B
-    BUFFER_CAPACITY_BYTES = 200000
+    # DCTCP_SD_THRESHOLD_VARIATION sets dataCapacity = 50000B
+    BUFFER_CAPACITY_BYTES = 50000
     
     # Collect all threshold datasets
     all_datasets = []
@@ -82,11 +82,10 @@ def combine_threshold_datasets(thresholds_str):
     print(f"\nThreshold distribution:")
     threshold_counts = combined_df['deflection_threshold'].value_counts().sort_index()
     
-    # Create a mapping from percentage back to bytes for display
-    BUFFER_CAPACITY_BYTES = 200000
+    # Use the same buffer capacity as above for display
     for threshold_pct, count in threshold_counts.items():
         threshold_bytes = int(threshold_pct * BUFFER_CAPACITY_BYTES)
-        print(f"  Threshold {threshold_pct:.1f} ({threshold_bytes} bytes, {threshold_pct:.1%}): {count:,} rows")
+        print(f"  Threshold {threshold_pct:.3f} ({threshold_bytes} bytes, {threshold_pct:.1%}): {count:,} rows")
     
     print(f"\nSample data (first 5 rows):")
     pd.set_option('display.max_columns', None)
@@ -98,8 +97,8 @@ def combine_threshold_datasets(thresholds_str):
 if __name__ == "__main__":
     if len(sys.argv) != 2:
         print("Usage: python3 combine_threshold_datasets.py <space_or_comma_separated_thresholds_in_bytes>")
-        print("Example: python3 combine_threshold_datasets.py \"15000 25000 35000 45000 50000\"")
-        print("Example: python3 combine_threshold_datasets.py \"15000,25000,35000,45000,50000\"")
+        print("Example: python3 combine_threshold_datasets.py \"15000 25000 37500 50000\"")
+        print("Example: python3 combine_threshold_datasets.py \"15000,25000,37500,50000\"")
         print("Note: Byte values will be converted to percentages based on 50,000 byte buffer capacity")
         sys.exit(1)
     

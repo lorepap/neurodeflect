@@ -1,0 +1,26 @@
+{
+  "analysis": {
+    "tree_depth": 8,
+    "num_leaves": "78",
+    "feature_importance": {
+      "queue_length": 0.3666692136576347,
+      "arrival_rate": 0.005752753599414332,
+      "service_rate": 0.5722636878395012,
+      "utilization": 0.007355745397585057,
+      "threshold": 0.021588419666269454,
+      "load": 0.026370179839595123
+    },
+    "num_nodes": 155
+  },
+  "feature_names": [
+    "queue_length",
+    "arrival_rate",
+    "service_rate",
+    "utilization",
+    "threshold",
+    "load"
+  ],
+  "action_space_size": "3",
+  "original_rl_model": "/home/ubuntu/practical_deflection/RL_Training/models/best_model.pth",
+  "dataset_path": "/home/ubuntu/practical_deflection/Omnet_Sims/dc_simulations/simulations/sims/combined_threshold_dataset.csv"
+}
