@@ -30,6 +30,7 @@
 #include "inet/applications/tcpapp/GenericAppMsg_m.h"
 #include "inet/common/FlowKey.h"
 #include <sqlite3.h>
+#include <sstream>
 
 using namespace inet;
 
@@ -215,6 +216,39 @@ void BouncingIeee8021dRelay::initialize(int stage)
                 throw cRuntimeError("sel_reaction_alpha < 0 || sel_reaction_alpha > 1");
         }
 
+        // RL-based deflection policy
+        bounce_with_rl_policy = getAncestorPar("bounce_with_rl_policy");
+        if (bounce_with_rl_policy) {
+            rl_model_path = std::string(getAncestorPar("rl_model_path"));
+            
+            // Parse normalization parameters from string
+            std::string rl_state_mean_str = std::string(getAncestorPar("rl_state_mean"));
+            std::string rl_state_std_str = std::string(getAncestorPar("rl_state_std"));
+            
+            // Parse comma-separated values for state mean
+            std::stringstream mean_ss(rl_state_mean_str);
+            std::string mean_item;
+            while (std::getline(mean_ss, mean_item, ',')) {
+                rl_state_mean.push_back(std::stod(mean_item));
+            }
+            
+            // Parse comma-separated values for state std
+            std::stringstream std_ss(rl_state_std_str);
+            std::string std_item;
+            while (std::getline(std_ss, std_item, ',')) {
+                rl_state_std.push_back(std::stod(std_item));
+            }
+            
+            // Validate normalization parameters
+            if (rl_state_mean.size() != 6 || rl_state_std.size() != 6) {
+                throw cRuntimeError("RL state normalization parameters must have 6 values each");
+            }
+            
+            // Load the RL model
+            rl_model_loaded = false;
+            load_rl_model();
+        }
+
         if (bounce_randomly_v2 && use_bolt_with_vertigo_queue) {
             std::string src_enabled_packet_type_str = getAncestorPar("src_enabled_packet_type");
             if (src_enabled_packet_type_str.compare("ORG") == 0)
@@ -244,7 +278,7 @@ void BouncingIeee8021dRelay::initialize(int stage)
             deflection_graph_partitioned = getAncestorPar("deflection_graph_partitioned");
         } else {
             can_deflect = bounce_naively || bounce_randomly || bounce_on_same_path || bounce_randomly_v2 ||
-                    bounce_probabilistically;
+                    bounce_probabilistically || bounce_with_rl_policy;
         }
 
         if (bounce_naively && naive_deflection_idx < 0)
@@ -255,7 +289,7 @@ void BouncingIeee8021dRelay::initialize(int stage)
         }
 
         if (int(bounce_naively) + int(bounce_randomly) + int(bounce_on_same_path) + int(bounce_randomly_v2)
-                + int(bounce_probabilistically) > 1)
+                + int(bounce_probabilistically) + int(bounce_with_rl_policy) > 1)
             throw cRuntimeError("Two bouncing approaches chosen. WTF?");
 
         if (bounce_probabilistically && learn_mac_addresses)
@@ -2602,6 +2636,44 @@ void BouncingIeee8021dRelay::dispatch(Packet *packet, InterfaceEntry *ie)
             // Using PABO
             ie2 = find_interface_to_bounce_probabilistically(packet, ie);
         }
+        else if (can_deflect && bounce_with_rl_policy) {
+            // Using RL-based deflection policy
+            bool should_deflect = get_rl_deflection_decision(packet, ie);
+            
+            if (should_deflect) {
+                if (bolt_is_packet_src(packet)) {
+                    // do not deflect SRC packets
+                    ie2 = ie;
+                } else {
+                    EV << "DEFLECTION_CAUSE=RL_POLICY switch=" << switch_name
+                       << " port=" << ie->getIndex()
+                       << " queuePath=" << queue_full_path << endl;
+                    
+                    // Mark packet for deflection
+                    if (dctcp_mark_deflected_packets_only)
+                        dctcp_mark_ecn_for_deflected_packets(packet);
+                    mark_packet_deflection_tag(packet);
+                    
+                    if (is_tcp_with_payload) {
+                        emit(actionSeqNumSignal, hashedId);
+                        emit(switchIdActionSignal, switchId);
+                        emit(packetActionSignal, 1);
+                    }
+                    
+                    // For simplicity, use random deflection when RL decides to deflect
+                    // This can be enhanced to use RL for port selection as well
+                    ie2 = find_interface_to_bounce_randomly(packet);
+                    
+                    if (ie2 == nullptr) {
+                        // If no valid deflection port found, forward normally
+                        ie2 = ie;
+                    }
+                }
+            } else {
+                // RL policy decides to forward normally
+                ie2 = ie;
+            }
+        }
         else if (can_deflect && use_vertigo_prio_queue && bounce_randomly_v2) {
             bolt_evaluate_if_src_packet_should_be_generated(packet, ie, ignore_cc_thresh_for_deflected_packets);
                     // Prioritize explicit v2-threshold based deflection first.
@@ -2875,5 +2947,144 @@ void BouncingIeee8021dRelay::finish()
     //recordScalar("number of delivered BPDUs to the STP module", numDeliveredBDPUsToSTP);
     //recordScalar("number of dispatched BPDU frames to the network", numDispatchedBDPUFrames);
     //recordScalar("number of dispatched non-BDPU frames to the network", numDispatchedNonBPDUFrames);
+}
+
+// RL-based deflection methods implementation
+void BouncingIeee8021dRelay::load_rl_model()
+{
+    try {
+        rl_model = torch::jit::load(rl_model_path);
+        rl_model.eval();  // Set to evaluation mode
+        rl_model_loaded = true;
+        EV_INFO << "Successfully loaded RL model from: " << rl_model_path << endl;
+    } catch (const std::exception& e) {
+        EV_ERROR << "Failed to load RL model from " << rl_model_path << ": " << e.what() << endl;
+        rl_model_loaded = false;
+        throw cRuntimeError("Failed to load RL model: %s", e.what());
+    }
+}
+
+std::vector<double> BouncingIeee8021dRelay::extract_rl_state_features(Packet *packet, InterfaceEntry *ie)
+{
+    std::vector<double> state_features(6, 0.0);
+    
+    try {
+        // Get the queue information for the outgoing interface
+        std::string switch_name = getParentModule()->getFullName();
+        std::string module_path_string = switch_name + ".eth[" + std::to_string(ie->getInterfaceId()) + "].mac.queue";
+        
+        if (use_v2_pifo) {
+            module_path_string += ".mainQueue";
+        }
+        
+        cModule* queue_module = getModuleByPath(module_path_string.c_str());
+        
+        if (queue_module == nullptr) {
+            EV_ERROR << "Cannot find queue module: " << module_path_string << endl;
+            return state_features;
+        }
+        
+        // Feature 0: Queue utilization (queue length / queue capacity)
+        if (use_v2_pifo) {
+            V2PIFO* v2pifo_queue = dynamic_cast<V2PIFO*>(queue_module);
+            if (v2pifo_queue) {
+                double queue_capacity = v2pifo_queue->getMaxNumPackets();
+                double queue_length = v2pifo_queue->getNumPackets();
+                state_features[0] = (queue_capacity > 0) ? (queue_length / queue_capacity) : 0.0;
+            }
+        } else {
+            // For standard queues
+            int queue_length = queue_module->par("length").intValue();
+            int queue_capacity = queue_module->par("capacity").intValue();
+            state_features[0] = (queue_capacity > 0) ? (double(queue_length) / double(queue_capacity)) : 0.0;
+        }
+        
+        // Feature 1: Total utilization across all interfaces
+        double total_utilization = 0.0;
+        int num_interfaces = 0;
+        
+        for (int i = 0; i < ifTable->getNumInterfaces(); i++) {
+            InterfaceEntry *current_ie = ifTable->getInterface(i);
+            if (!current_ie->isLoopback()) {
+                double port_util = get_port_utilization(current_ie->getInterfaceId(), packet);
+                total_utilization += port_util;
+                num_interfaces++;
+            }
+        }
+        state_features[1] = (num_interfaces > 0) ? (total_utilization / num_interfaces) : 0.0;
+        
+        // Feature 2: TTL priority (normalized TTL value)
+        auto ipv4Header = packet->peekAtFront<Ipv4Header>();
+        if (ipv4Header) {
+            double ttl_normalized = double(ipv4Header->getTimeToLive()) / 64.0;  // Assuming max TTL of 64
+            state_features[2] = std::min(1.0, std::max(0.0, ttl_normalized));
+        }
+        
+        // Feature 3: Out-of-order indicator (simplified: check if packet has been deflected)
+        // Check the deflection flag in the MAC header
+        auto macHeader = packet->peekAtFront<EthernetMacHeader>();
+        state_features[3] = (macHeader && macHeader->getIs_deflected()) ? 1.0 : 0.0;
+        
+        // Feature 4: Packet delay (simplified: use arrival time as proxy)
+        state_features[4] = simTime().dbl();
+        
+        // Feature 5: FCT contribution (packet size as proxy for flow contribution)
+        state_features[5] = double(packet->getByteLength()) / 1500.0;  // Normalize by MTU
+        
+    } catch (const std::exception& e) {
+        EV_ERROR << "Error extracting RL state features: " << e.what() << endl;
+        // Return zero state in case of error
+        std::fill(state_features.begin(), state_features.end(), 0.0);
+    }
+    
+    return state_features;
+}
+
+bool BouncingIeee8021dRelay::get_rl_deflection_decision(Packet *packet, InterfaceEntry *ie)
+{
+    if (!rl_model_loaded) {
+        EV_ERROR << "RL model not loaded, cannot make deflection decision" << endl;
+        return false;  // Default to forward
+    }
+    
+    try {
+        // Extract state features
+        std::vector<double> raw_state = extract_rl_state_features(packet, ie);
+        
+        // Normalize state features
+        std::vector<double> normalized_state(6);
+        for (size_t i = 0; i < 6; i++) {
+            if (rl_state_std[i] > 0) {
+                normalized_state[i] = (raw_state[i] - rl_state_mean[i]) / rl_state_std[i];
+            } else {
+                normalized_state[i] = raw_state[i] - rl_state_mean[i];
+            }
+        }
+        
+        // Convert to PyTorch tensor
+        torch::Tensor state_tensor = torch::tensor(normalized_state, torch::kFloat32).unsqueeze(0);
+        
+        // Get model prediction (already returns action probabilities)
+        std::vector<torch::jit::IValue> inputs;
+        inputs.push_back(state_tensor);
+        
+        torch::Tensor action_probs = rl_model.forward(inputs).toTensor();
+        
+        // Get the action with highest probability
+        torch::Tensor max_action = torch::argmax(action_probs, 1);
+        int action = max_action.item<int>();
+        
+        // Action 0 = forward, Action 1 = deflect
+        bool should_deflect = (action == 1);
+        
+        EV_DEBUG << "RL Policy Decision: " << (should_deflect ? "DEFLECT" : "FORWARD") 
+                 << " (action=" << action << ")" << endl;
+        
+        return should_deflect;
+        
+    } catch (const std::exception& e) {
+        EV_ERROR << "Error in RL deflection decision: " << e.what() << endl;
+        return false;  // Default to forward in case of error
+    }
 }
 

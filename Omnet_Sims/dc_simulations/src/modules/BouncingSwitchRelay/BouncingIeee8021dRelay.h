@@ -34,6 +34,11 @@
 #include "unordered_map"
 #include "unordered_set"
 
+// PyTorch includes for RL model inference
+#include <torch/torch.h>
+#include <torch/script.h>
+#include <vector>
+
 using namespace inet;
 
 //
@@ -134,6 +139,14 @@ class BouncingIeee8021dRelay : public LayeredProtocolBase
     bool apply_selective_net_reaction;
     int selective_net_reaction_type;
     double sel_reaction_alpha;
+
+    // RL-based deflection policy
+    bool bounce_with_rl_policy;  // Enable RL-based deflection decisions
+    std::string rl_model_path;   // Path to the trained PyTorch model
+    std::vector<double> rl_state_mean;  // State normalization means
+    std::vector<double> rl_state_std;   // State normalization standard deviations
+    torch::jit::script::Module rl_model;  // Loaded PyTorch model
+    bool rl_model_loaded;        // Track if model is successfully loaded
 
     typedef std::pair<MacAddress, MacAddress> MacAddressPair;
 
@@ -265,6 +278,11 @@ class BouncingIeee8021dRelay : public LayeredProtocolBase
     void bolt_evaluate_if_src_packet_should_be_generated(Packet *packet, InterfaceEntry *, bool ignore_cc_thresh, bool has_phy_header=true, int extraction_port_interface_id=-1);
     void mark_packet_deflection_tag(Packet *packet, bool has_phy_header=true);
     bool bolt_is_packet_src(Packet *packet);
+    
+    // RL-based deflection methods
+    void load_rl_model();
+    std::vector<double> extract_rl_state_features(Packet *packet, InterfaceEntry *ie);
+    bool get_rl_deflection_decision(Packet *packet, InterfaceEntry *ie);
     
     unsigned long getRequesterIDFromPacket(Packet *packet, InterfaceEntry *ie = nullptr);
     unsigned long getSequenceNumberFromPacket(Packet *packet, InterfaceEntry *ie);

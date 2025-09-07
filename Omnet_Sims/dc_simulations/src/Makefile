@@ -16,13 +16,13 @@ USERIF_LIBS = $(ALL_ENV_LIBS) # that is, $(TKENV_LIBS) $(QTENV_LIBS) $(CMDENV_LI
 #USERIF_LIBS = $(QTENV_LIBS)
 
 # C++ include paths (with -I)
-INCLUDE_PATH = -I$(INET_PROJ)/src
+INCLUDE_PATH = -I$(INET_PROJ)/src -I/home/ubuntu/libtorch/include -I/home/ubuntu/libtorch/include/torch/csrc/api/include
 
 # Additional object and library files to link with
 EXTRA_OBJS =
 
 # Additional libraries (-L, -l options)
-LIBS = $(LDFLAG_LIBPATH)$(INET_PROJ)/src  -lsqlite3 -lINET$(D)
+LIBS = $(LDFLAG_LIBPATH)$(INET_PROJ)/src  -lsqlite3 -lINET$(D) -L/home/ubuntu/libtorch/lib -ltorch -ltorch_cpu -lc10
 
 # Output directory
 PROJECT_OUTPUT_DIR = ../out
@@ -94,10 +94,10 @@ include $(CONFIGFILE)
 # Simulation kernel and user interface libraries
 OMNETPP_LIBS = $(OPPMAIN_LIB) $(USERIF_LIBS) $(KERNEL_LIBS) $(SYS_LIBS)
 ifneq ($(TOOLCHAIN_NAME),clangc2)
-LIBS += -Wl,-rpath,$(abspath $(INET_PROJ)/src)
+LIBS += -Wl,-rpath,$(abspath $(INET_PROJ)/src) -Wl,-rpath,/home/ubuntu/libtorch/lib
 endif
 
-COPTS = $(CFLAGS) $(IMPORT_DEFINES) -DINET_IMPORT $(INCLUDE_PATH) -I$(OMNETPP_INCL_DIR)
+COPTS = $(CFLAGS) $(IMPORT_DEFINES) -DINET_IMPORT $(INCLUDE_PATH) -I$(OMNETPP_INCL_DIR) -D_GLIBCXX_USE_CXX11_ABI=1 -std=c++17
 MSGCOPTS = $(INCLUDE_PATH)
 SMCOPTS =
 

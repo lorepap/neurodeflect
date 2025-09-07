@@ -87,6 +87,12 @@ module LSEtherSwitch
         bool drop_bounced_in_relay = default(false);
         double denominator_for_retrasnmissions = default(2);
         
+        // RL-based deflection policy
+        bool bounce_with_rl_policy = default(false);
+        string rl_model_path = default("");
+        string rl_state_mean = default("0.0,0.0,0.0,0.0,0.0,0.0");
+        string rl_state_std = default("1.0,1.0,1.0,1.0,1.0,1.0");
+        
         // incremental deployment
         bool incremental_deployment = default(false);
         string incremental_deployment_file_name = default("");

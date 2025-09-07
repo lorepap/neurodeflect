@@ -1,0 +1,34 @@
+RL Policy Analysis Report
+==================================================
+
+Simulation Configuration:
+- Policy: Reinforcement Learning (IQL)
+- Simulation Time: 0.001s
+- Network: LeafSpine 1G (4 spines, 8 aggregates, 40 servers)
+- Protocol: DCTCP with RL deflection decisions
+
+Flow Completion Time Analysis:
+- Total flows completed: 7
+- Mean FCT: 0.000542s
+- Median FCT: 0.000497s
+- 95th percentile FCT: 0.000767s
+- 99th percentile FCT: 0.000784s
+- FCT standard deviation: 0.000181s
+- Min FCT: 0.000290s
+- Max FCT: 0.000788s
+
+Network Activity Summary:
+- Total requests sent: 1549
+- Total replies: 1549
+- Unique requesting nodes: 17
+- Flows started: 14
+- Flows ended: 7
+
+Generated Analysis Files:
+- fct_analysis.png: Flow completion time distributions
+- network_metrics.png: Network activity summary
+- flow_patterns.png: Flow start/end temporal patterns
+- fct_data.csv: Raw FCT data for further analysis
+- rl_policy_analysis_report.txt: This summary report
+
+Analysis completed successfully!
