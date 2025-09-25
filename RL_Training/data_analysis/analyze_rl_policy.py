@@ -21,9 +21,11 @@ from pathlib import Path
 import warnings
 warnings.filterwarnings('ignore')
 
+base_path  = '/home/ubuntu/practical_deflection/Omnet_Sims/dc_simulations/simulations/sims'
+
 class RLPolicyAnalyzer:
     def __init__(self, data_dir="extracted_results", output_dir="rl_analysis"):
-        self.data_dir = Path(data_dir)
+        self.data_dir = Path(base_path) / data_dir
         self.output_dir = Path(output_dir)
         self.output_dir.mkdir(exist_ok=True)
         
@@ -236,6 +238,161 @@ class RLPolicyAnalyzer:
             
             print(f"Network metrics saved to {self.output_dir}/network_metrics.png")
         
+    def analyze_deflections(self):
+        """Analyze packet deflection patterns and RL policy decisions"""
+        print("\n=== Analyzing Deflection Patterns ===")
+        
+        # Load packet action data
+        packet_action_df = self.load_csv_data("PACKET_ACTION")
+        if packet_action_df is None:
+            print("No packet action data available")
+            return
+            
+        # Extract deflection decisions from packet action data
+        deflection_decisions = []
+        timestamps = []
+        
+        for _, row in packet_action_df.iterrows():
+            # Find the value columns (deflection decisions: 0 = no deflection, 1 = deflection)
+            numeric_cols = packet_action_df.select_dtypes(include=[np.number]).columns
+            
+            for col in numeric_cols:
+                val = row[col]
+                if pd.notna(val):
+                    if col.lower().endswith('time') or 'timestamp' in col.lower():
+                        timestamps.append(val)
+                    elif val in [0, 1]:  # Deflection decision
+                        deflection_decisions.append(int(val))
+        
+        if not deflection_decisions:
+            print("No valid deflection decision data found")
+            return
+            
+        deflection_decisions = np.array(deflection_decisions)
+        
+        # Calculate deflection statistics
+        total_decisions = len(deflection_decisions)
+        deflections = np.sum(deflection_decisions)
+        no_deflections = total_decisions - deflections
+        deflection_rate = deflections / total_decisions if total_decisions > 0 else 0
+        
+        deflection_stats = {
+            'total_decisions': total_decisions,
+            'deflections': deflections,
+            'no_deflections': no_deflections,
+            'deflection_rate': deflection_rate,
+            'policy_type': 'RL (IQL)'
+        }
+        
+        self.results['deflection_stats'] = deflection_stats
+        
+        # Print deflection statistics
+        print(f"Deflection Analysis:")
+        print(f"  Total routing decisions: {total_decisions}")
+        print(f"  Deflections (value=1): {deflections}")
+        print(f"  No deflections (value=0): {no_deflections}")
+        print(f"  Deflection rate: {deflection_rate:.4f} ({deflection_rate*100:.2f}%)")
+        
+        # Create deflection analysis plots
+        plt.figure(figsize=(12, 8))
+        
+        # Deflection decision distribution
+        plt.subplot(2, 2, 1)
+        labels = ['No Deflection', 'Deflection']
+        values = [no_deflections, deflections]
+        colors = ['lightcoral', 'lightblue']
+        
+        bars = plt.bar(labels, values, color=colors, alpha=0.7, edgecolor='black')
+        plt.ylabel('Count')
+        plt.title('RL Policy Deflection Decisions')
+        plt.grid(True, alpha=0.3, axis='y')
+        
+        # Add value labels on bars
+        for bar, value in zip(bars, values):
+            plt.text(bar.get_x() + bar.get_width()/2, bar.get_height() + max(values) * 0.01,
+                    str(value), ha='center', va='bottom', fontweight='bold')
+        
+        # Deflection rate pie chart
+        plt.subplot(2, 2, 2)
+        plt.pie(values, labels=labels, colors=colors, autopct='%1.2f%%', startangle=90)
+        plt.title('Deflection Rate Distribution')
+        
+        # Deflection decisions over time (if timestamps available)
+        if timestamps and len(timestamps) == len(deflection_decisions):
+            plt.subplot(2, 2, 3)
+            # Create time series of deflection decisions
+            time_decisions = list(zip(timestamps, deflection_decisions))
+            time_decisions.sort(key=lambda x: x[0])  # Sort by timestamp
+            
+            times, decisions = zip(*time_decisions)
+            
+            # Plot deflection decisions over time
+            plt.scatter(times, decisions, alpha=0.6, s=10)
+            plt.xlabel('Time (s)')
+            plt.ylabel('Decision (0=No Deflect, 1=Deflect)')
+            plt.title('Deflection Decisions Over Time')
+            plt.yticks([0, 1])
+            plt.grid(True, alpha=0.3)
+            
+            # Calculate moving average deflection rate
+            window_size = max(1, len(decisions) // 20)  # 5% window
+            if window_size > 1:
+                moving_avg = np.convolve(decisions, np.ones(window_size)/window_size, mode='valid')
+                moving_times = times[window_size-1:]
+                
+                plt.subplot(2, 2, 4)
+                plt.plot(moving_times, moving_avg, 'r-', linewidth=2)
+                plt.xlabel('Time (s)')
+                plt.ylabel('Moving Average Deflection Rate')
+                plt.title(f'Deflection Rate Trend (Window: {window_size})')
+                plt.grid(True, alpha=0.3)
+                plt.ylim(0, 1)
+        else:
+            # Summary statistics instead of time series
+            plt.subplot(2, 2, 3)
+            stats_labels = ['Total Decisions', 'Deflections', 'Deflection Rate (%)']
+            stats_values = [total_decisions, deflections, deflection_rate * 100]
+            
+            bars = plt.bar(range(len(stats_labels)), stats_values, 
+                          color=['gray', 'blue', 'green'], alpha=0.7)
+            plt.xticks(range(len(stats_labels)), stats_labels, rotation=45, ha='right')
+            plt.ylabel('Value')
+            plt.title('Deflection Summary Statistics')
+            plt.grid(True, alpha=0.3, axis='y')
+            
+            # Add value labels
+            for i, (bar, value) in enumerate(zip(bars, stats_values)):
+                if i == 2:  # Percentage
+                    label = f'{value:.2f}%'
+                else:
+                    label = str(int(value))
+                plt.text(bar.get_x() + bar.get_width()/2, bar.get_height() + max(stats_values) * 0.01,
+                        label, ha='center', va='bottom', fontweight='bold')
+            
+            plt.subplot(2, 2, 4)
+            plt.text(0.5, 0.5, f'RL Policy Performance:\n\n'
+                              f'Total Decisions: {total_decisions:,}\n'
+                              f'Deflections: {deflections:,}\n'
+                              f'Deflection Rate: {deflection_rate:.4f}\n'
+                              f'Policy Type: {deflection_stats["policy_type"]}',
+                    ha='center', va='center', fontsize=12,
+                    bbox=dict(boxstyle='round', facecolor='lightgray', alpha=0.8))
+            plt.axis('off')
+            plt.title('RL Policy Summary')
+        
+        plt.tight_layout()
+        plt.savefig(self.output_dir / 'deflection_analysis.png', dpi=300, bbox_inches='tight')
+        plt.close()
+        
+        # Save deflection data to CSV
+        deflection_df = pd.DataFrame({
+            'decision': deflection_decisions,
+            'timestamp': timestamps[:len(deflection_decisions)] if timestamps else range(len(deflection_decisions))
+        })
+        deflection_df.to_csv(self.output_dir / 'deflection_data.csv', index=False)
+        
+        print(f"Deflection analysis saved to {self.output_dir}/deflection_analysis.png")
+        
     def analyze_flow_patterns(self):
         """Analyze flow start/end patterns"""
         print("\n=== Analyzing Flow Patterns ===")
@@ -337,12 +494,23 @@ class RLPolicyAnalyzer:
                 f.write(f"- Flows started: {self.results['flows_started']}\n")
             if 'flows_ended' in self.results:
                 f.write(f"- Flows ended: {self.results['flows_ended']}\n")
+            
+            if 'deflection_stats' in self.results:
+                stats = self.results['deflection_stats']
+                f.write(f"\nDeflection Analysis:\n")
+                f.write(f"- Total routing decisions: {stats['total_decisions']}\n")
+                f.write(f"- Packets deflected: {stats['deflections']}\n")
+                f.write(f"- Packets not deflected: {stats['no_deflections']}\n")
+                f.write(f"- Deflection rate: {stats['deflection_rate']:.4f} ({stats['deflection_rate']*100:.2f}%)\n")
+                f.write(f"- Policy type: {stats['policy_type']}\n")
                 
             f.write("\nGenerated Analysis Files:\n")
             f.write("- fct_analysis.png: Flow completion time distributions\n")
             f.write("- network_metrics.png: Network activity summary\n")
             f.write("- flow_patterns.png: Flow start/end temporal patterns\n")
+            f.write("- deflection_analysis.png: RL policy deflection decisions\n")
             f.write("- fct_data.csv: Raw FCT data for further analysis\n")
+            f.write("- deflection_data.csv: Raw deflection decision data\n")
             f.write("- rl_policy_analysis_report.txt: This summary report\n\n")
             
             f.write("Analysis completed successfully!\n")
@@ -357,6 +525,7 @@ class RLPolicyAnalyzer:
         try:
             self.analyze_flow_completion_times()
             self.analyze_network_metrics()
+            self.analyze_deflections()
             self.analyze_flow_patterns()
             self.create_summary_report()
             
@@ -375,8 +544,7 @@ class RLPolicyAnalyzer:
 
 def main():
     parser = argparse.ArgumentParser(description='Analyze RL Policy simulation results')
-    parser.add_argument('--data-dir', 
-                        default='/home/ubuntu/practical_deflection/Omnet_Sims/dc_simulations/simulations/sims/extracted_results',
+    parser.add_argument('--data-dir', default='extracted_results',
                         help='Directory containing extracted CSV files')
     parser.add_argument('--output-dir', default='rl_analysis',
                         help='Directory to save analysis results')
@@ -384,10 +552,9 @@ def main():
     args = parser.parse_args()
     
     # Check if data directory exists
-    if not os.path.exists(args.data_dir):
+    if not Path(base_path).joinpath(args.data_dir).exists():
         print(f"Error: Data directory '{args.data_dir}' does not exist")
         print("Please run the RL extraction first or specify correct path")
-        print("Expected path: /home/ubuntu/practical_deflection/Omnet_Sims/dc_simulations/simulations/sims/extracted_results")
         sys.exit(1)
     
     analyzer = RLPolicyAnalyzer(args.data_dir, args.output_dir)

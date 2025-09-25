@@ -12,7 +12,12 @@ import hashlib
 from os import listdir, makedirs
 from os.path import isfile, join, exists
 
-RESULT_FILES_DIR = './'  # Current directory
+# Check if a custom results directory is provided as second argument
+if len(sys.argv) > 2:
+    RESULT_FILES_DIR = sys.argv[2]
+else:
+    RESULT_FILES_DIR = './results/rl_policy/'  # Default RL policy results directory
+
 TOPOLOGY = 2  # LEAF_SPINE
 REP_NUM = 1
 SIMS_DIR = '/home/ubuntu/practical_deflection/Omnet_Sims/dc_simulations/simulations/sims'
@@ -29,6 +34,12 @@ print(f"RL Policy Extractor starting...")
 print(f"Looking for RL policy result files in: {RESULT_FILES_DIR}")
 print(f"Output directory: {OUTPUT_FILE_DIRECTORY}")
 print(f"Category: {category}")
+
+# Check if the results directory exists
+if not exists(RESULT_FILES_DIR):
+    print(f"ERROR: Results directory does not exist: {RESULT_FILES_DIR}")
+    print("Please run the RL policy simulation first or check the path.")
+    sys.exit(1)
 
 # Look for .vec files with _rl_policy pattern (instead of _rep_)
 onlyfiles = [f for f in listdir(RESULT_FILES_DIR) if
@@ -62,10 +73,14 @@ for output_dir in output_dirs:
 f = open('../../../extractor_rl_policy.sh', 'w')
 f.write('#!/bin/bash\n')
 f.write('# Auto-generated RL policy extractor script\n')
-f.write(f'# Generated for {len(onlyfiles)} RL policy result files\n\n')
+f.write(f'# Generated for {len(onlyfiles)} RL policy result files\n')
+f.write(f'# Working directory: {RESULT_FILES_DIR}\n\n')
 
 for file_name in onlyfiles:
     print(f"\nProcessing file: {file_name}")
+    
+    # Use the full path to the file
+    full_file_path = join(RESULT_FILES_DIR, file_name)
     
     # Parse RL policy filename components
     # Example: 4_spines_8_aggs_40_servers_1_burstyapps_1_mice_40_reqPerBurst_11.85_bgintermult_1_bgfsizemult_0.11_burstyintermult_1_burstyfsizemult_250_ttl_0_rep_2_rndfwfactor_2_rndbouncefactor_20000_incastfsize_0.00120_mrktimer_0.00120_ordtimer_rl_policy.vec
@@ -138,10 +153,10 @@ for file_name in onlyfiles:
         marking_timer = "0.00120"
         ordering_timer = "0.00120"
 
-    # Use the actual filename instead of reconstructing it
-    vector_file_name = file_name
-    scalar_file_name = file_name.replace('.vec', '.sca')
-    index_file_name = file_name.replace('.vec', '.vci')
+    # Use the actual filename with full path
+    vector_file_path = full_file_path
+    scalar_file_path = full_file_path.replace('.vec', '.sca')
+    index_file_path = full_file_path.replace('.vec', '.vci')
 
     # Create a shorter output filename using hash
     full_name = file_name.replace('.vec', '')
@@ -160,28 +175,35 @@ for file_name in onlyfiles:
     output_dir_name = 'FLOW_ENDED/'
     command = "scavetool x --type v --filter \"module(**.server[*].app[*]) AND " \
               "\\\"flowEndedRequesterID:vector\\\"\" -o {} -F CSV-S {}\n".format(
-        OUTPUT_FILE_DIRECTORY + output_dir_name + output_file_name, vector_file_name)
+        OUTPUT_FILE_DIRECTORY + output_dir_name + output_file_name, vector_file_path)
     f.write(f'echo "  {output_dir_name}"\n')
     f.write(command)
 
     output_dir_name = 'FLOW_STARTED/'
     command = "scavetool x --type v --filter \"module(**.server[*].app[*]) AND " \
                "\\\"flowStartedRequesterID:vector\\\"\" -o {} -F CSV-S {}\n".format(
-        OUTPUT_FILE_DIRECTORY + output_dir_name + output_file_name, vector_file_name)
+        OUTPUT_FILE_DIRECTORY + output_dir_name + output_file_name, vector_file_path)
     f.write(f'echo "  {output_dir_name}"\n')
+    f.write(command)
+
+    output_dir_name = 'FLOW_ID/'
+    command = "scavetool x --type v --filter \"module(**.**.relayUnit) AND " \
+        "\\\"FlowID:vector\\\"\" -o {} -F CSV-R {}\n".format(OUTPUT_FILE_DIRECTORY + output_dir_name + output_file_name, vector_file_path)
+    print(command)
+    f.write('echo \"{}\"\n'.format(output_dir_name))
     f.write(command)
 
     output_dir_name = 'REQUEST_SENT/'
     command = "scavetool x --type v --filter \"module(**.server[*].app[*]) AND " \
               "\\\"requestSentRequesterID:vector\\\"\" -o {} -F CSV-S {}\n".format(
-        OUTPUT_FILE_DIRECTORY + output_dir_name + output_file_name, vector_file_name)
+        OUTPUT_FILE_DIRECTORY + output_dir_name + output_file_name, vector_file_path)
     f.write(f'echo "  {output_dir_name}"\n')
     f.write(command)
 
     output_dir_name = 'REPLY_LENGTH_ASKED/'
     command = "scavetool x --type v --filter \"module(**.server[*].app[*]) AND " \
               "\\\"replyLengthAsked:vector\\\"\" -o {} -F CSV-S {}\n".format(
-        OUTPUT_FILE_DIRECTORY + output_dir_name + output_file_name, vector_file_name)
+        OUTPUT_FILE_DIRECTORY + output_dir_name + output_file_name, vector_file_path)
     f.write(f'echo "  {output_dir_name}"\n')
     f.write(command)
 
@@ -191,108 +213,134 @@ for file_name in onlyfiles:
     output_dir_name = 'REQUESTER_ID/'
     command = "scavetool x --type v --filter \"module(**.**.relayUnit) AND " \
               "\\\"RequesterID:vector\\\"\" -o {} -F CSV-S {}\n".format(
-        OUTPUT_FILE_DIRECTORY + output_dir_name + output_file_name, vector_file_name)
+        OUTPUT_FILE_DIRECTORY + output_dir_name + output_file_name, vector_file_path)
     f.write(f'echo "  {output_dir_name}"\n')
     f.write(command)
     
     # Queue length at switches (important for RL state)
     output_dir_name = 'QUEUE_LEN/'
-    command = "scavetool x --type v --filter \"module(**.**.eth[*].mac.queue) AND " \
-              "\\\"queueLength:vector\\\"\" -o {} -F CSV-S {}\n".format(
-        OUTPUT_FILE_DIRECTORY + output_dir_name + output_file_name, vector_file_name)
+    command = "scavetool x --type v --filter \"module(LeafSpine1G) AND " \
+              "\\\"QueueLen:vector\\\"\" -o {} -F CSV-S {}\n".format(
+        OUTPUT_FILE_DIRECTORY + output_dir_name + output_file_name, vector_file_path)
     f.write(f'echo "  {output_dir_name}"\n')
+    f.write(command)
+    
+    
+    output_dir_name = 'QUEUES_TOT_LEN/'
+    command = "scavetool x --type v --filter \"module(LeafSpine1G) AND " \
+                "\\\"QueuesTotLen:vector\\\"\" -o {} -F CSV-S {}\n".format(OUTPUT_FILE_DIRECTORY+output_dir_name+output_file_name, vector_file_path)
+    print(command)
+    f.write('echo \"{}\"\n'.format(output_dir_name))
     f.write(command)
     
     # Packet actions/decisions at switches (deflection vs forward)
     output_dir_name = 'PACKET_ACTION/'
-    command = "scavetool x --type v --filter \"module(**.**.relayUnit) AND " \
-              "\\\"packetAction:vector\\\"\" -o {} -F CSV-S {}\n".format(
-        OUTPUT_FILE_DIRECTORY + output_dir_name + output_file_name, vector_file_name)
+    command = "scavetool x --type v --filter \"module(**) AND " \
+              "\\\"PacketAction:vector\\\"\" -o {} -F CSV-S {}\n".format(
+        OUTPUT_FILE_DIRECTORY + output_dir_name + output_file_name, vector_file_path)
     f.write(f'echo "  {output_dir_name}"\n')
+    f.write(command)
+
+    output_dir_name = 'RCV_TS_SEQ_NUM/'
+    command = "scavetool x --type v --filter \"module(LeafSpine1G) AND " \
+                "\\\"rcvSeq:vector\\\"\" -o {} -F CSV-S {}\n".format(OUTPUT_FILE_DIRECTORY + output_dir_name + output_file_name, vector_file_path)
+    print(command)
+    f.write('echo \"{}\"\n'.format(output_dir_name))
+    f.write(command)
+
+    command = '\n\n'
+    print(command)
+    f.write(command)
+    
+    output_dir_name = 'SND_TS_SEQ_NUM/'
+    command = "scavetool x --type v --filter \"module(LeafSpine1G) AND " \
+                "\\\"sndNxt:vector\\\"\" -o {} -F CSV-S {}\n".format(OUTPUT_FILE_DIRECTORY + output_dir_name + output_file_name, vector_file_path)
+    print(command)
+    f.write('echo \"{}\"\n'.format(output_dir_name))
     f.write(command)
 
     # ===== TCP METRICS =====
     
-    output_dir_name = 'SYN_SENT/'
-    command = "scavetool x --type v --filter \"module(**.server[*].tcp) AND " \
-              "\\\"tcpConnectionSYNSent:vector\\\"\" -o {} -F CSV-S {}\n".format(
-        OUTPUT_FILE_DIRECTORY + output_dir_name + output_file_name, vector_file_name)
-    f.write(f'echo "  {output_dir_name}"\n')
-    f.write(command)
+    # output_dir_name = 'SYN_SENT/'
+    # command = "scavetool x --type v --filter \"module(**.server[*].tcp) AND " \
+    #           "\\\"tcpConnectionSYNSent:vector\\\"\" -o {} -F CSV-S {}\n".format(
+    #     OUTPUT_FILE_DIRECTORY + output_dir_name + output_file_name, vector_file_path)
+    # f.write(f'echo "  {output_dir_name}"\n')
+    # f.write(command)
     
-    output_dir_name = 'SYN_SENT_IS_BURSTY/'
-    command = "scavetool x --type v --filter \"module(**.server[*].tcp) AND " \
-              "\\\"tcpConnectionSYNSentIsBursty:vector\\\"\" -o {} -F CSV-S {}\n".format(
-        OUTPUT_FILE_DIRECTORY + output_dir_name + output_file_name, vector_file_name)
-    f.write(f'echo "  {output_dir_name}"\n')
-    f.write(command)
+    # output_dir_name = 'SYN_SENT_IS_BURSTY/'
+    # command = "scavetool x --type v --filter \"module(**.server[*].tcp) AND " \
+    #           "\\\"tcpConnectionSYNSentIsBursty:vector\\\"\" -o {} -F CSV-S {}\n".format(
+    #     OUTPUT_FILE_DIRECTORY + output_dir_name + output_file_name, vector_file_path)
+    # f.write(f'echo "  {output_dir_name}"\n')
+    # f.write(command)
     
-    output_dir_name = 'FIN_ACK_RCV/'
-    command = "scavetool x --type v --filter \"module(**.server[*].tcp) AND " \
-              "\\\"tcpConnectionFINRcv:vector\\\"\" -o {} -F CSV-S {}\n".format(
-        OUTPUT_FILE_DIRECTORY + output_dir_name + output_file_name, vector_file_name)
-    f.write(f'echo "  {output_dir_name}"\n')
-    f.write(command)
+    # output_dir_name = 'FIN_ACK_RCV/'
+    # command = "scavetool x --type v --filter \"module(**.server[*].tcp) AND " \
+    #           "\\\"tcpConnectionFINRcv:vector\\\"\" -o {} -F CSV-S {}\n".format(
+    #     OUTPUT_FILE_DIRECTORY + output_dir_name + output_file_name, vector_file_path)
+    # f.write(f'echo "  {output_dir_name}"\n')
+    # f.write(command)
 
     # ===== SCALAR METRICS =====
     
     output_dir_name = 'OOO_SEG_NUM/'
-    command = "scavetool x --type s --filter \"module(**.server[*].tcp) AND " \
+    command = "scavetool x --type s --filter \"module(LeafSpine1G) AND " \
               "\\\"numReceivedOOOSegs\\\"\" -o {} -F CSV-S {}\n".format(
-        OUTPUT_FILE_DIRECTORY + output_dir_name + output_file_name, scalar_file_name)
+        OUTPUT_FILE_DIRECTORY + output_dir_name + output_file_name, scalar_file_path)
     f.write(f'echo "  {output_dir_name}"\n')
     f.write(command)
 
-    output_dir_name = 'UTILIZATION/'
-    command = "scavetool x --type s --filter \"module(**.**.eth[*].mac) AND " \
-              "\\\"bits/sec *\\\"\" -o {} -F CSV-S {}\n".format(
-        OUTPUT_FILE_DIRECTORY + output_dir_name + output_file_name, scalar_file_name)
-    f.write(f'echo "  {output_dir_name}"\n')
-    f.write(command)
+    # output_dir_name = 'UTILIZATION/'
+    # command = "scavetool x --type s --filter \"module(**.**.eth[*].mac) AND " \
+    #           "\\\"bits/sec *\\\"\" -o {} -F CSV-S {}\n".format(
+    #     OUTPUT_FILE_DIRECTORY + output_dir_name + output_file_name, scalar_file_path)
+    # f.write(f'echo "  {output_dir_name}"\n')
+    # f.write(command)
 
-    output_dir_name = 'PER_PACKET_FABRIC_DELAY_COUNTS/'
-    command = "scavetool x --type s --filter \"module(**.**.eth[*].mac) AND " \
-              "\\\"perPacketFabricDelayNum\\\"\" -o {} -F CSV-S {}\n".format(
-        OUTPUT_FILE_DIRECTORY + output_dir_name + output_file_name, scalar_file_name)
-    f.write(f'echo "  {output_dir_name}"\n')
-    f.write(command)
+    # output_dir_name = 'PER_PACKET_FABRIC_DELAY_COUNTS/'
+    # command = "scavetool x --type s --filter \"module(**.**.eth[*].mac) AND " \
+    #           "\\\"perPacketFabricDelayNum\\\"\" -o {} -F CSV-S {}\n".format(
+    #     OUTPUT_FILE_DIRECTORY + output_dir_name + output_file_name, scalar_file_path)
+    # f.write(f'echo "  {output_dir_name}"\n')
+    # f.write(command)
 
-    output_dir_name = 'PER_PACKET_FABRIC_DELAY_SUM/'
-    command = "scavetool x --type s --filter \"module(**.**.eth[*].mac) AND " \
-              "\\\"perPacketFabricDelaySum\\\"\" -o {} -F CSV-S {}\n".format(
-        OUTPUT_FILE_DIRECTORY + output_dir_name + output_file_name, scalar_file_name)
-    f.write(f'echo "  {output_dir_name}"\n')
-    f.write(command)
+    # output_dir_name = 'PER_PACKET_FABRIC_DELAY_SUM/'
+    # command = "scavetool x --type s --filter \"module(**.**.eth[*].mac) AND " \
+    #           "\\\"perPacketFabricDelaySum\\\"\" -o {} -F CSV-S {}\n".format(
+    #     OUTPUT_FILE_DIRECTORY + output_dir_name + output_file_name, scalar_file_path)
+    # f.write(f'echo "  {output_dir_name}"\n')
+    # f.write(command)
 
     # ===== V2 ORDERING METRICS =====
     
-    output_dir_name = 'V2_RCVD_SOONER/'
-    command = "scavetool x --type s --filter \"module(**.ipv4.ip) AND " \
-              "\\\"v2RcvdSoonerStored\\\"\" -o {} -F CSV-S {}\n".format(
-        OUTPUT_FILE_DIRECTORY + output_dir_name + output_file_name, scalar_file_name)
-    f.write(f'echo "  {output_dir_name}"\n')
-    f.write(command)
+    # output_dir_name = 'V2_RCVD_SOONER/'
+    # command = "scavetool x --type s --filter \"module(**.ipv4.ip) AND " \
+    #           "\\\"v2RcvdSoonerStored\\\"\" -o {} -F CSV-S {}\n".format(
+    #     OUTPUT_FILE_DIRECTORY + output_dir_name + output_file_name, scalar_file_path)
+    # f.write(f'echo "  {output_dir_name}"\n')
+    # f.write(command)
 
-    output_dir_name = 'V2_RCVD_CORRECTLY/'
-    command = "scavetool x --type s --filter \"module(**.ipv4.ip) AND " \
-              "\\\"v2RcvdCorrectlyPushed\\\"\" -o {} -F CSV-S {}\n".format(
-        OUTPUT_FILE_DIRECTORY + output_dir_name + output_file_name, scalar_file_name)
-    f.write(f'echo "  {output_dir_name}"\n')
-    f.write(command)
+    # output_dir_name = 'V2_RCVD_CORRECTLY/'
+    # command = "scavetool x --type s --filter \"module(**.ipv4.ip) AND " \
+    #           "\\\"v2RcvdCorrectlyPushed\\\"\" -o {} -F CSV-S {}\n".format(
+    #     OUTPUT_FILE_DIRECTORY + output_dir_name + output_file_name, scalar_file_path)
+    # f.write(f'echo "  {output_dir_name}"\n')
+    # f.write(command)
 
-    output_dir_name = 'V2_RCVD_LATER/'
-    command = "scavetool x --type s --filter \"module(**.ipv4.ip) AND " \
-              "\\\"v2RcvdLaterPushed\\\"\" -o {} -F CSV-S {}\n".format(
-        OUTPUT_FILE_DIRECTORY + output_dir_name + output_file_name, scalar_file_name)
-    f.write(f'echo "  {output_dir_name}"\n')
-    f.write(command)
+    # output_dir_name = 'V2_RCVD_LATER/'
+    # command = "scavetool x --type s --filter \"module(**.ipv4.ip) AND " \
+    #           "\\\"v2RcvdLaterPushed\\\"\" -o {} -F CSV-S {}\n".format(
+    #     OUTPUT_FILE_DIRECTORY + output_dir_name + output_file_name, scalar_file_path)
+    # f.write(f'echo "  {output_dir_name}"\n')
+    # f.write(command)
 
-    output_dir_name = 'NUM_MARKING_TIMEOUTS/'
-    command = "scavetool x --type s --filter \"module(**.ipv4.ip) AND " \
-              "\\\"numTimeoutsMarking\\\"\" -o {} -F CSV-S {}\n".format(
-        OUTPUT_FILE_DIRECTORY + output_dir_name + output_file_name, scalar_file_name)
-    f.write(f'echo "  {output_dir_name}"\n')
-    f.write(command)
+    # output_dir_name = 'NUM_MARKING_TIMEOUTS/'
+    # command = "scavetool x --type s --filter \"module(**.ipv4.ip) AND " \
+    #           "\\\"numTimeoutsMarking\\\"\" -o {} -F CSV-S {}\n".format(
+    #     OUTPUT_FILE_DIRECTORY + output_dir_name + output_file_name, scalar_file_path)
+    # f.write(f'echo "  {output_dir_name}"\n')
+    # f.write(command)
 
     f.write('\n')
 

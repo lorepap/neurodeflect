@@ -1,5 +1,14 @@
 #!/bin/bash
 
+if [ $# -eq 0 ]; then
+    echo "Usage: $0 <simulation_time>"
+    echo "Example: $0 10s (for 10 seconds)"
+    echo "Example: $0 1000ms (for 1000 milliseconds)"
+    echo "Example: $0 0.1s (for 0.1 seconds)"
+    exit 1
+fi
+
+SIMULATION_TIME=$1
 
 do_extract () {
     python3 ./extractor_shell_creator.py $1
@@ -19,42 +28,42 @@ bash dir_creator.sh
 # DCTCP RUNS
 echo "\n\n-------------------------------------------"
 echo "Running DCTCP_ECMP"
-opp_runall -j50 ../../src/dc_simulations -m -u Cmdenv -c DCTCP_ECMP -n ..:../../src:../../../inet/src:../../../inet/examples:../../../inet/tutorials:../../../inet/showcases --image-path=../../../inet/images -l ../../../inet/src/INET omnetpp_1G.ini
+opp_runall -j50 ../../src/dc_simulations -m -u Cmdenv -c DCTCP_ECMP -n ..:../../src:../../../inet/src:../../../inet/examples:../../../inet/tutorials:../../../inet/showcases --image-path=../../../inet/images -l ../../../inet/src/INET omnetpp_1G.ini --sim-time-limit=$SIMULATION_TIME
 do_extract dctcp_ecmp
 mkdir logs/dctcp_ecmp_1G
 cp results/*.out logs/dctcp_ecmp_1G/
 
 echo "\n\n-------------------------------------------"
 echo "Running DCTCP_DIBS"
-opp_runall -j50 ../../src/dc_simulations -m -u Cmdenv -c DCTCP_DIBS -n ..:../../src:../../../inet/src:../../../inet/examples:../../../inet/tutorials:../../../inet/showcases --image-path=../../../inet/images -l ../../../inet/src/INET omnetpp_1G.ini
+opp_runall -j50 ../../src/dc_simulations -m -u Cmdenv -c DCTCP_DIBS -n ..:../../src:../../../inet/src:../../../inet/examples:../../../inet/tutorials:../../../inet/showcases --image-path=../../../inet/images -l ../../../inet/src/INET omnetpp_1G.ini --sim-time-limit=$SIMULATION_TIME
 do_extract dctcp_dibs
 mkdir logs/dctcp_dibs_1G
 cp results/*.out logs/dctcp_dibs_1G/
 
 echo "\n\n-------------------------------------------"
 echo "Running DCTCP_SD"
-opp_runall -j50 ../../src/dc_simulations -m -u Cmdenv -c DCTCP_SD -n ..:../../src:../../../inet/src:../../../inet/examples:../../../inet/tutorials:../../../inet/showcases --image-path=../../../inet/images -l ../../../inet/src/INET omnetpp_1G.ini
+opp_runall -j50 ../../src/dc_simulations -m -u Cmdenv -c DCTCP_SD -n ..:../../src:../../../inet/src:../../../inet/examples:../../../inet/tutorials:../../../inet/showcases --image-path=../../../inet/images -l ../../../inet/src/INET omnetpp_1G.ini --sim-time-limit=$SIMULATION_TIME
 do_extract dctcp_sd
 mkdir logs/dctcp_sd_1G
 cp results/*.out logs/dctcp_sd_1G/
 
 echo "\n\n-------------------------------------------"
 echo "Running DCTCP_VERTIGO"
-opp_runall -j50 ../../src/dc_simulations -m -u Cmdenv -c DCTCP_VERTIGO -n ..:../../src:../../../inet/src:../../../inet/examples:../../../inet/tutorials:../../../inet/showcases --image-path=../../../inet/images -l ../../../inet/src/INET omnetpp_1G.ini
+opp_runall -j50 ../../src/dc_simulations -m -u Cmdenv -c DCTCP_VERTIGO -n ..:../../src:../../../inet/src:../../../inet/examples:../../../inet/tutorials:../../../inet/showcases --image-path=../../../inet/images -l ../../../inet/src/INET omnetpp_1G.ini --sim-time-limit=$SIMULATION_TIME
 do_extract dctcp_vertigo
 mkdir logs/dctcp_vertigo_1G
 cp results/*.out logs/dctcp_vertigo_1G/
 
 echo "\n\n-------------------------------------------"
 echo "Running DCTCP_DIST_PD"
-opp_runall -j50 ../../src/dc_simulations -m -u Cmdenv -c DCTCP_DIST_PD -n ..:../../src:../../../inet/src:../../../inet/examples:../../../inet/tutorials:../../../inet/showcases --image-path=../../../inet/images -l ../../../inet/src/INET omnetpp_1G.ini
+opp_runall -j50 ../../src/dc_simulations -m -u Cmdenv -c DCTCP_DIST_PD -n ..:../../src:../../../inet/src:../../../inet/examples:../../../inet/tutorials:../../../inet/showcases --image-path=../../../inet/images -l ../../../inet/src/INET omnetpp_1G.ini --sim-time-limit=$SIMULATION_TIME
 do_extract dctcp_dist_pd
 mkdir logs/dctcp_dist_pd_1G
 cp results/*.out logs/dctcp_dist_pd_1G/
 
 echo "\n\n-------------------------------------------"
 echo "Running DCTCP_QUANTILE_PD"
-opp_runall -j50 ../../src/dc_simulations -m -u Cmdenv -c DCTCP_QUANTILE_PD -n ..:../../src:../../../inet/src:../../../inet/examples:../../../inet/tutorials:../../../inet/showcases --image-path=../../../inet/images -l ../../../inet/src/INET omnetpp_1G.ini
+opp_runall -j50 ../../src/dc_simulations -m -u Cmdenv -c DCTCP_QUANTILE_PD -n ..:../../src:../../../inet/src:../../../inet/examples:../../../inet/tutorials:../../../inet/showcases --image-path=../../../inet/images -l ../../../inet/src/INET omnetpp_1G.ini --sim-time-limit=$SIMULATION_TIME
 do_extract dctcp_quantile_pd
 mkdir logs/dctcp_quantile_pd_1G
 cp results/*.out logs/dctcp_quantile_pd_1G/

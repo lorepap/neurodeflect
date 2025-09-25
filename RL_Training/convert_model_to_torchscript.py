@@ -1,6 +1,10 @@
 #!/usr/bin/env python3
 """
-Convert trained IQL model to TorchScript format for C++ inference.
+Convert trained IQL model to TorchScrip    # Create policy network with same architecture as training
+    # State space: 3 dimensions (queue_utilization, total_occupancy, ttl_priority)
+    # Action space: 2 actions (0=forward, 1=deflect)
+    state_dim = 3
+    action_dim = 2mat for C++ inference.
 
 This script loads the saved IQL model state dictionaries and converts
 only the policy network to TorchScript format, which is what we need
@@ -67,7 +71,7 @@ def convert_model_to_torchscript():
     # Create policy network with same architecture as training
     # State space: 6 dimensions (queue_util, total_util, ttl_priority, ooo_indicator, packet_delay, fct_contribution)
     # Action space: 2 actions (0=forward, 1=deflect)
-    state_dim = 6
+    state_dim = 3
     action_dim = 2
     hidden_dims = [256]  # Single hidden layer with 256 units as per IQL agent
     
@@ -90,7 +94,7 @@ def convert_model_to_torchscript():
     # Set to evaluation mode
     policy.eval()
     
-    # Create example input for tracing (batch_size=1, state_dim=6)
+    # Create example input for tracing (batch_size=1, state_dim=3)
     example_input = torch.randn(1, state_dim)
     print(f"Example input shape: {example_input.shape}")
     

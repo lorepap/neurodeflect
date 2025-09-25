@@ -45,7 +45,7 @@ simsignal_t MultiSocketBasicClient::notJitteredRequestSentSignal = registerSigna
 simsignal_t MultiSocketBasicClient::replyLengthsSignal = registerSignal("replyLengths");
 simsignal_t MultiSocketBasicClient::chunksReceivedLengthSignal = registerSignal("chunksReceivedLength");
 simsignal_t MultiSocketBasicClient::chunksReceivedTotalLengthSignal = registerSignal("chunksReceivedTotalLength");
-
+simsignal_t MultiSocketBasicClient::flowIdSignal = registerSignal("flowId"); // True flow ID (5-tuple without sequence)
 
 
 MultiSocketBasicClient::~MultiSocketBasicClient()
@@ -302,6 +302,7 @@ void MultiSocketBasicClient::sendRequest(long socket_id)
     EV << "sending request with " << requestLength << " bytes, expected reply length " << reply_length << " bytes\n";
     EV << "SEPEHR: sending request with request ID: " << payload->getRequesterID() << endl;
     emit(requestSentSignal, payload->getRequesterID());
+    emit(flowIdSignal, get_flow_id());
     emit(replyLengthsSignal, reply_length);
     if (is_bursty)
         emit(flowEndedQueryIDSignal, payload->getQuery_id());

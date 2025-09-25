@@ -111,9 +111,20 @@ class RLBaselineComparator:
         """Analyze a threshold-based dataset"""
         stats = {'threshold': threshold}
         
-        # Check available columns
-        if 'fct' in df.columns:
-            fcts = df['fct'].dropna()
+        # Check available columns (case-insensitive)
+        df_columns_lower = [col.lower() for col in df.columns]
+        
+        # Look for FCT column (may be 'fct', 'FCT', or other variations)
+        fct_col = None
+        for col in df.columns:
+            if col.lower() in ['fct', 'flow_completion_time', 'completion_time']:
+                fct_col = col
+                break
+        
+        if fct_col is not None:
+            fcts = df[fct_col].dropna()
+            # Filter out invalid FCT values (negative or zero)
+            fcts = fcts[fcts > 0]
             if len(fcts) > 0:
                 stats['fct_data'] = fcts.values
                 stats['mean_fct'] = np.mean(fcts)
@@ -122,13 +133,18 @@ class RLBaselineComparator:
                 stats['p99_fct'] = np.percentile(fcts, 99)
                 stats['total_flows'] = len(fcts)
         
-        # Check for other relevant metrics
-        if 'deflection_action' in df.columns:
-            deflections = df['deflection_action'].value_counts()
+        # Check for deflection metrics
+        if 'action' in df.columns:
+            deflections = df['action'].value_counts()
             if 1 in deflections:  # Assuming 1 = deflected
                 stats['deflection_rate'] = deflections[1] / len(df)
             else:
                 stats['deflection_rate'] = 0.0
+        elif 'deflection_rate' in df.columns:
+            # Use pre-computed deflection rate
+            deflection_rates = df['deflection_rate'].dropna()
+            if len(deflection_rates) > 0:
+                stats['deflection_rate'] = np.mean(deflection_rates)
         
         # Count total packets/requests
         stats['total_packets'] = len(df)
@@ -155,13 +171,19 @@ class RLBaselineComparator:
         threshold_keys = sorted(self.results['threshold_policies'].keys())
         for threshold in threshold_keys:
             threshold_data = self.results['threshold_policies'][threshold]
-            if 'fct_data' in threshold_data:
+            if 'fct_data' in threshold_data and len(threshold_data['fct_data']) > 0:
                 all_fcts.append(threshold_data['fct_data'])
                 all_labels.append(f'Threshold {threshold}')
+            else:
+                print(f"  Warning: No FCT data for threshold {threshold}")
         
         if not all_fcts:
             print("  No FCT data available for comparison")
             return
+        
+        print(f"  Comparing {len(all_fcts)} policies:")
+        for i, (fcts, label) in enumerate(zip(all_fcts, all_labels)):
+            print(f"    {label}: {len(fcts)} flows, Mean FCT: {np.mean(fcts):.6f}s")
             
         # Plot 1: FCT distributions
         plt.subplot(2, 3, 1)
@@ -185,13 +207,29 @@ class RLBaselineComparator:
         plt.legend()
         plt.grid(True, alpha=0.3)
         
-        # Plot 3: Box plots
+        # Plot 3: Box plots (handle different array sizes)
         plt.subplot(2, 3, 3)
-        plt.boxplot(all_fcts, labels=all_labels)
-        plt.ylabel('Flow Completion Time (s)')
-        plt.title('FCT Box Plot Comparison')
-        plt.xticks(rotation=45, ha='right')
-        plt.grid(True, alpha=0.3)
+        # Create separate box plots to avoid array size issues
+        if len(all_fcts) > 0:
+            # Plot individual box plots
+            positions = list(range(1, len(all_fcts) + 1))
+            for i, (fcts, label) in enumerate(zip(all_fcts, all_labels)):
+                if len(fcts) > 0:
+                    bp = plt.boxplot([fcts], positions=[positions[i]], patch_artist=True, widths=0.6)
+                    # Color RL policy differently
+                    if 'RL' in label:
+                        bp['boxes'][0].set_facecolor('red')
+                        bp['boxes'][0].set_alpha(0.7)
+                    else:
+                        bp['boxes'][0].set_facecolor('lightblue')
+                        bp['boxes'][0].set_alpha(0.7)
+            
+            plt.xticks(positions, all_labels, rotation=45, ha='right')
+            plt.ylabel('Flow Completion Time (s)')
+            plt.title('FCT Box Plot Comparison')
+            plt.grid(True, alpha=0.3)
+        else:
+            plt.text(0.5, 0.5, 'No valid data for box plot', ha='center', va='center', transform=plt.gca().transAxes)
         
         # Plot 4: Mean FCT comparison
         plt.subplot(2, 3, 4)

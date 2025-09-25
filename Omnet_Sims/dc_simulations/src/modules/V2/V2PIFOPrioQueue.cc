@@ -596,6 +596,12 @@ bool V2PIFOPrioQueue::is_over_v2_threshold_full_sppifo(b packet_length, Packet* 
     EV << "V2PIFOPrioQueue::is_over_v2_threshold_full" << endl;
     bool is_over_deflection_threshold = (getMaxNumPackets() != -1 && getNumPackets() + on_the_way_packet_num >= deflection_threshold) ||
             (getMaxTotalLength() != b(-1) && (getTotalLength() + on_the_way_packet_length + packet_length).get() >= deflection_threshold);
+
+    if (getMaxTotalLength() != b(-1)) {
+        EV << "DEBUG: (getTotalLength() + on_the_way_packet_length + packet_length).get() = "
+           << (getTotalLength() + on_the_way_packet_length + packet_length).get()
+           << ", deflection_threshold = " << deflection_threshold << endl;
+    }
     if (getMaxNumPackets() != -1)
         EV << "The deflection threshold is " << deflection_threshold << ", There are currently " << getNumPackets() << " packets inside the queue and " << on_the_way_packet_num << " packets on the way. is_over_deflection_threshold? " << is_over_deflection_threshold << endl;
     else if (getMaxTotalLength() != b(-1))

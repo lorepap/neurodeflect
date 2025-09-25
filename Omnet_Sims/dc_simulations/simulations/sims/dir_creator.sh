@@ -1,3 +1,5 @@
+rm -rf logs figs extracted_results
+
 mkdir -p logs
 mkdir -p figs
 mkdir -p extracted_results

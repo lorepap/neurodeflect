@@ -89,6 +89,7 @@ class INET_API MultiSocketBasicClient : public MultiSocketTcpAppBase
   public:
     MultiSocketBasicClient() {}
     virtual ~MultiSocketBasicClient();
+    static simsignal_t flowIdSignal;
     static simsignal_t flowEndedSignal;
     static simsignal_t flowEndedQueryIDSignal;
     static simsignal_t flowStartedSignal;

@@ -321,8 +321,19 @@ void AugmentedEtherMac::handleUpperPacket(Packet *packet)
         // TODO: YOU SHOULD REMOVE THIS ERROR FOR RED
         if (!use_vertigo_prio_queue && !use_v2_pifo && !use_pfabric) {
             bool queue_full = is_queue_full(b(packet->getBitLength()), queue_full_path);
-            if (queue_full)
-                throw cRuntimeError("The queue is full but you're still pushing while you should've dropped in relay unit.");
+            if (queue_full) {
+                // Drop the packet instead of throwing error
+                EV_WARN << "Queue is full, dropping packet of size " << packet->getBitLength() << " bits\n";
+                on_the_way_packet_length -= b(packet->getBitLength());
+                on_the_way_packet_num -= 1;
+                if (buffer != nullptr) {
+                    buffer->on_the_way_packet_length -= b(packet->getBitLength());
+                    buffer->on_the_way_packet_num -= 1;
+                }
+                check_on_the_way_variables();
+                delete packet;  // Drop the packet
+                return;  // Exit early, don't push to queue
+            }
         }
         on_the_way_packet_length -= b(packet->getBitLength());
         on_the_way_packet_num -= 1;

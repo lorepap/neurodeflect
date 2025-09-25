@@ -239,9 +239,9 @@ void BouncingIeee8021dRelay::initialize(int stage)
                 rl_state_std.push_back(std::stod(std_item));
             }
             
-            // Validate normalization parameters
-            if (rl_state_mean.size() != 6 || rl_state_std.size() != 6) {
-                throw cRuntimeError("RL state normalization parameters must have 6 values each");
+            // Validate normalization parameters (3 features: queue_utilization, total_occupancy, ttl_priority)
+            if (rl_state_mean.size() != 3 || rl_state_std.size() != 3) {
+                throw cRuntimeError("RL state normalization parameters must have 3 values each (queue_utilization, total_occupancy, ttl_priority)");
             }
             
             // Load the RL model
@@ -907,31 +907,24 @@ double BouncingIeee8021dRelay::get_port_utilization(int port, Packet *packet)
     double queue_util;
     std::string switch_name = getParentModule()->getFullName();
 
-    std::string module_path_string;
-//    AugmentedEtherMac *mac = check_and_cast<AugmentedEtherMac *>(getModuleByPath(module_path_string.c_str()));
-    if (frame->getBouncedHop() == 0)
-    {
-        // packet has never been bounced.
-        module_path_string = switch_name + ".eth[" + std::to_string(port) + "].mac.queue.dataQueue";
-        EV << "Extracting utilization of " << module_path_string << " for port " << port << endl;
-
+    // Use the same approach as RL state extraction for consistency
+    std::string module_path_string = switch_name + ".eth[" + std::to_string(port) + "].mac";
+    AugmentedEtherMac *mac = check_and_cast<AugmentedEtherMac *>(getModuleByPath(module_path_string.c_str()));
+    
+    std::string queue_full_path = module_path_string + ".queue";
+    if (send_header_of_dropped_packet_to_receiver) {
+        queue_full_path = module_path_string + ".queue.mainQueue";
     }
-    else
-    {
-        // packet has been bounced at least once
-        module_path_string = switch_name + ".eth[" + std::to_string(port) + "].mac.queue.bounceBackQueue";
-        EV << "Extracting utilization of " << module_path_string << " for port " << port << endl;
-    }
-    queueing::PacketQueue *queue = check_and_cast<queueing::PacketQueue *>(getModuleByPath(module_path_string.c_str()));
-    if (queue->getMaxNumPackets() != -1) {
-        // Packet capacity
-        queue_util = (1.0 * queue->getNumPackets()) / queue->getMaxNumPackets();
-        EV << "Capacity: " << queue->getMaxNumPackets() << ", occupancy: " << queue->getNumPackets() << ", util: " << queue_util << endl;
-    } else {
-        // Data capacity
-        queue_util = (1.0 * queue->getTotalLength().get()) / queue->getMaxTotalLength().get();
-        EV << "Capacity: " << queue->getMaxTotalLength() << ", occupancy: " << queue->getTotalLength() << ", util: " << queue_util << endl;
-    }
+    
+    EV << "Extracting utilization of " << queue_full_path << " for port " << port << endl;
+    
+    // Use AugmentedEtherMac methods to get queue information
+    double queue_occupancy = mac->get_queue_occupancy(queue_full_path);  // in bytes
+    double queue_capacity = mac->get_queue_capacity(queue_full_path);   // in bytes
+    
+    queue_util = (queue_capacity > 0) ? (queue_occupancy / queue_capacity) : 0.0;
+    
+    EV << "Capacity: " << queue_capacity << ", occupancy: " << queue_occupancy << ", util: " << queue_util << endl;
 
     return queue_util;
 }
@@ -2637,8 +2630,39 @@ void BouncingIeee8021dRelay::dispatch(Packet *packet, InterfaceEntry *ie)
             ie2 = find_interface_to_bounce_probabilistically(packet, ie);
         }
         else if (can_deflect && bounce_with_rl_policy) {
-            // Using RL-based deflection policy
-            bool should_deflect = get_rl_deflection_decision(packet, ie);
+            // Check buffer fullness first - override RL policy if queue is full
+            if (mac_temp->is_queue_full(packet_length, queue_full_path)) {
+                // Buffer is full - force deflection regardless of RL policy (hybrid approach)
+                EV << "DEFLECTION_CAUSE=BUFFER_FULL_OVERRIDE_RL switch=" << switch_name
+                   << " port=" << ie->getIndex()
+                   << " queuePath=" << queue_full_path << endl;
+                
+                if (bolt_is_packet_src(packet)) {
+                    // do not deflect SRC packets - drop instead
+                    ie2 = ie;  
+                } else {
+                    // Mark packet for deflection
+                    if (dctcp_mark_deflected_packets_only)
+                        dctcp_mark_ecn_for_deflected_packets(packet);
+                    mark_packet_deflection_tag(packet);
+                    
+                    if (is_tcp_with_payload) {
+                        emit(actionSeqNumSignal, hashedId);
+                        emit(switchIdActionSignal, switchId);
+                        emit(packetActionSignal, 1);  // Force deflection
+                    }
+                    
+                    // Use random deflection when buffer forces override
+                    ie2 = find_interface_to_bounce_randomly(packet);
+                    
+                    if (ie2 == nullptr) {
+                        // If no valid deflection port found, forward normally (will likely drop)
+                        ie2 = ie;
+                    }
+                }
+            } else {
+                // Buffer has space - use RL-based deflection policy
+                bool should_deflect = get_rl_deflection_decision(packet, ie);
             
             if (should_deflect) {
                 if (bolt_is_packet_src(packet)) {
@@ -2661,7 +2685,7 @@ void BouncingIeee8021dRelay::dispatch(Packet *packet, InterfaceEntry *ie)
                     }
                     
                     // For simplicity, use random deflection when RL decides to deflect
-                    // This can be enhanced to use RL for port selection as well
+                    // TODO: This can be enhanced to use RL for port selection as well
                     ie2 = find_interface_to_bounce_randomly(packet);
                     
                     if (ie2 == nullptr) {
@@ -2672,7 +2696,15 @@ void BouncingIeee8021dRelay::dispatch(Packet *packet, InterfaceEntry *ie)
             } else {
                 // RL policy decides to forward normally
                 ie2 = ie;
+                
+                // Emit signal for no deflection decision
+                if (is_tcp_with_payload) {
+                    emit(actionSeqNumSignal, hashedId);
+                    emit(switchIdActionSignal, switchId);
+                    emit(packetActionSignal, 0); // No deflection
+                }
             }
+            } // Close the if (can_deflect && use_rl_policy) block
         }
         else if (can_deflect && use_vertigo_prio_queue && bounce_randomly_v2) {
             bolt_evaluate_if_src_packet_should_be_generated(packet, ie, ignore_cc_thresh_for_deflected_packets);
@@ -2683,7 +2715,7 @@ void BouncingIeee8021dRelay::dispatch(Packet *packet, InterfaceEntry *ie)
                     // to preserve previous behavior.
                     if (mac_temp->is_queue_over_v2_threshold(packet_length, queue_full_path, packet) &&
                         mac_temp->is_packet_tag_larger_than_last_packet(queue_full_path, packet)) {
-//                std::cout << simTime() << ": Applying early deflection (threshold)" << endl;
+                    //                std::cout << simTime() << ": Applying early deflection (threshold)" << endl;
                                 // Instrumentation: mark deflection root cause as THRESHOLD
                                 try {
                                      long occ_bytes = mac_temp->get_queue_occupancy(queue_full_path);
@@ -2711,7 +2743,7 @@ void BouncingIeee8021dRelay::dispatch(Packet *packet, InterfaceEntry *ie)
                         }
                         return;
                     } else if (mac_temp->is_queue_full(packet_length, queue_full_path)) {
-//                std::cout << simTime() << ": Applying early deflection (overflow)" << endl;
+                    //                std::cout << simTime() << ": Applying early deflection (overflow)" << endl;
                                 // Instrumentation: mark deflection root cause as OVERFLOW
                                 try {
                                      long occ_bytes = mac_temp->get_queue_occupancy(queue_full_path);
@@ -2966,70 +2998,85 @@ void BouncingIeee8021dRelay::load_rl_model()
 
 std::vector<double> BouncingIeee8021dRelay::extract_rl_state_features(Packet *packet, InterfaceEntry *ie)
 {
-    std::vector<double> state_features(6, 0.0);
+    // State space matches RL training environment: 3 features
+    // [queue_utilization, total_occupancy, ttl_priority]
+    std::vector<double> state_features(3, 0.0);
     
     try {
         // Get the queue information for the outgoing interface
         std::string switch_name = getParentModule()->getFullName();
-        std::string module_path_string = switch_name + ".eth[" + std::to_string(ie->getInterfaceId()) + "].mac.queue";
+        std::string module_path_string = switch_name + ".eth[" + std::to_string(ie->getIndex()) + "].mac";
         
-        if (use_v2_pifo) {
-            module_path_string += ".mainQueue";
+        // Use AugmentedEtherMac to get queue information
+        AugmentedEtherMac *mac = check_and_cast<AugmentedEtherMac *>(getModuleByPath(module_path_string.c_str()));
+        std::string queue_full_path = module_path_string + ".queue";
+        
+        if (send_header_of_dropped_packet_to_receiver) {
+            queue_full_path = module_path_string + ".queue.mainQueue";
         }
         
-        cModule* queue_module = getModuleByPath(module_path_string.c_str());
+        // Feature 0: Queue utilization (occupancy / capacity)
+        // This matches the RL environment: queue_utilization = occupancy / capacity
+        double queue_occupancy = mac->get_queue_occupancy(queue_full_path);  // in bytes
+        double queue_capacity = mac->get_queue_capacity(queue_full_path);   // in bytes
+        state_features[0] = (queue_capacity > 0) ? (queue_occupancy / queue_capacity) : 0.0;
         
-        if (queue_module == nullptr) {
-            EV_ERROR << "Cannot find queue module: " << module_path_string << endl;
-            return state_features;
-        }
+        EV << "RL_STATE_DEBUG: Queue " << ie->getIndex() << " - occupancy: " << queue_occupancy 
+           << " bytes, capacity: " << queue_capacity << " bytes, utilization: " << state_features[0] << endl;
         
-        // Feature 0: Queue utilization (queue length / queue capacity)
-        if (use_v2_pifo) {
-            V2PIFO* v2pifo_queue = dynamic_cast<V2PIFO*>(queue_module);
-            if (v2pifo_queue) {
-                double queue_capacity = v2pifo_queue->getMaxNumPackets();
-                double queue_length = v2pifo_queue->getNumPackets();
-                state_features[0] = (queue_capacity > 0) ? (queue_length / queue_capacity) : 0.0;
-            }
-        } else {
-            // For standard queues
-            int queue_length = queue_module->par("length").intValue();
-            int queue_capacity = queue_module->par("capacity").intValue();
-            state_features[0] = (queue_capacity > 0) ? (double(queue_length) / double(queue_capacity)) : 0.0;
-        }
-        
-        // Feature 1: Total utilization across all interfaces
-        double total_utilization = 0.0;
-        int num_interfaces = 0;
+        // Feature 1: Total occupancy (raw value in bytes)
+        // This matches the RL environment: total_occupancy (absolute value, not normalized)
+        double total_occupancy = 0.0;
         
         for (int i = 0; i < ifTable->getNumInterfaces(); i++) {
             InterfaceEntry *current_ie = ifTable->getInterface(i);
             if (!current_ie->isLoopback()) {
-                double port_util = get_port_utilization(current_ie->getInterfaceId(), packet);
-                total_utilization += port_util;
-                num_interfaces++;
+                std::string curr_module_path = switch_name + ".eth[" + std::to_string(current_ie->getIndex()) + "].mac";
+                AugmentedEtherMac *curr_mac = check_and_cast<AugmentedEtherMac *>(getModuleByPath(curr_module_path.c_str()));
+                std::string curr_queue_path = curr_module_path + ".queue";
+                
+                if (send_header_of_dropped_packet_to_receiver) {
+                    curr_queue_path = curr_module_path + ".queue.mainQueue";
+                }
+                
+                total_occupancy += curr_mac->get_queue_occupancy(curr_queue_path);
             }
         }
-        state_features[1] = (num_interfaces > 0) ? (total_utilization / num_interfaces) : 0.0;
+        state_features[1] = total_occupancy;
         
-        // Feature 2: TTL priority (normalized TTL value)
-        auto ipv4Header = packet->peekAtFront<Ipv4Header>();
-        if (ipv4Header) {
-            double ttl_normalized = double(ipv4Header->getTimeToLive()) / 64.0;  // Assuming max TTL of 64
-            state_features[2] = std::min(1.0, std::max(0.0, ttl_normalized));
+        EV << "RL_STATE_DEBUG: Total occupancy across all interfaces: " << total_occupancy << " bytes" << endl;
+        
+        // Feature 2: TTL priority (packet urgency - higher value = more hops traveled)
+        // This matches the RL environment: ttl_priority = (250 - ttl) / 250.0
+        const auto& frame = packet->peekAtFront<EthernetMacHeader>();
+        b packet_position = packet->getFrontOffset();
+        packet->setFrontIteratorPosition(b(0));
+        
+        // Skip physical and MAC headers to get to IP header
+        auto phy_header = packet->removeAtFront<EthernetPhyHeader>();
+        auto mac_header = packet->removeAtFront<EthernetMacHeader>();
+        
+        if (packet->getDataLength() > b(0)) {
+            auto ipv4_header = packet->removeAtFront<Ipv4Header>();
+            if (ipv4_header) {
+                double ttl = double(ipv4_header->getTimeToLive());
+                // TTL priority: higher value means packet has traveled more hops (more urgent)
+                state_features[2] = (250.0 - ttl) / 250.0;
+                state_features[2] = std::min(1.0, std::max(0.0, state_features[2]));
+                
+                EV << "RL_STATE_DEBUG: TTL=" << ttl << ", TTL priority=" << state_features[2] << endl;
+            }
+            packet->insertAtFront(ipv4_header);
         }
         
-        // Feature 3: Out-of-order indicator (simplified: check if packet has been deflected)
-        // Check the deflection flag in the MAC header
-        auto macHeader = packet->peekAtFront<EthernetMacHeader>();
-        state_features[3] = (macHeader && macHeader->getIs_deflected()) ? 1.0 : 0.0;
+        // Restore packet structure
+        packet->insertAtFront(mac_header);
+        packet->insertAtFront(phy_header);
+        packet->setFrontIteratorPosition(packet_position);
         
-        // Feature 4: Packet delay (simplified: use arrival time as proxy)
-        state_features[4] = simTime().dbl();
-        
-        // Feature 5: FCT contribution (packet size as proxy for flow contribution)
-        state_features[5] = double(packet->getByteLength()) / 1500.0;  // Normalize by MTU
+        EV_DEBUG << "RL State Features: queue_util=" << state_features[0] 
+                 << ", total_occupancy=" << state_features[1] 
+                 << ", ttl_priority=" << state_features[2] << endl;
         
     } catch (const std::exception& e) {
         EV_ERROR << "Error extracting RL state features: " << e.what() << endl;
@@ -3048,18 +3095,29 @@ bool BouncingIeee8021dRelay::get_rl_deflection_decision(Packet *packet, Interfac
     }
     
     try {
-        // Extract state features
+        // Extract state features (3 features: queue_utilization, total_occupancy, ttl_priority)
         std::vector<double> raw_state = extract_rl_state_features(packet, ie);
         
-        // Normalize state features
-        std::vector<double> normalized_state(6);
-        for (size_t i = 0; i < 6; i++) {
+        // Log raw state features for debugging
+        EV << "RL_DEBUG: Raw state features: [" 
+           << raw_state[0] << ", " << raw_state[1] << ", " << raw_state[2] << "]" << endl;
+        
+        // Normalize state features (using 3 features instead of 6)
+        std::vector<double> normalized_state(3);
+        for (size_t i = 0; i < 3; i++) {
             if (rl_state_std[i] > 0) {
                 normalized_state[i] = (raw_state[i] - rl_state_mean[i]) / rl_state_std[i];
             } else {
                 normalized_state[i] = raw_state[i] - rl_state_mean[i];
             }
         }
+        
+        // Log normalization parameters and normalized state
+        EV << "RL_DEBUG: Normalization params - mean: [" 
+           << rl_state_mean[0] << ", " << rl_state_mean[1] << ", " << rl_state_mean[2] 
+           << "], std: [" << rl_state_std[0] << ", " << rl_state_std[1] << ", " << rl_state_std[2] << "]" << endl;
+        EV << "RL_DEBUG: Normalized state: [" 
+           << normalized_state[0] << ", " << normalized_state[1] << ", " << normalized_state[2] << "]" << endl;
         
         // Convert to PyTorch tensor
         torch::Tensor state_tensor = torch::tensor(normalized_state, torch::kFloat32).unsqueeze(0);
@@ -3070,6 +3128,11 @@ bool BouncingIeee8021dRelay::get_rl_deflection_decision(Packet *packet, Interfac
         
         torch::Tensor action_probs = rl_model.forward(inputs).toTensor();
         
+        // Log action probabilities
+        auto action_probs_accessor = action_probs.accessor<float, 2>();
+        EV << "RL_DEBUG: Action probabilities - Forward: " << action_probs_accessor[0][0] 
+           << ", Deflect: " << action_probs_accessor[0][1] << endl;
+        
         // Get the action with highest probability
         torch::Tensor max_action = torch::argmax(action_probs, 1);
         int action = max_action.item<int>();
@@ -3077,8 +3140,8 @@ bool BouncingIeee8021dRelay::get_rl_deflection_decision(Packet *packet, Interfac
         // Action 0 = forward, Action 1 = deflect
         bool should_deflect = (action == 1);
         
-        EV_DEBUG << "RL Policy Decision: " << (should_deflect ? "DEFLECT" : "FORWARD") 
-                 << " (action=" << action << ")" << endl;
+        EV << "RL_DEBUG: Final decision: " << (should_deflect ? "DEFLECT" : "FORWARD") 
+           << " (action=" << action << ")" << endl;
         
         return should_deflect;
         

@@ -61,7 +61,7 @@ process_threshold() {
     # Populate results_1G_thr_<thr> with ONLY this threshold's CSVs
     mkdir -p "results_1G_thr_${threshold}"
     # Known categories
-    local cats=(QUEUE_LEN QUEUES_TOT_LEN QUEUE_CAPACITY QUEUES_TOT_CAPACITY PACKET_ACTION RCV_TS_SEQ_NUM SND_TS_SEQ_NUM OOO_SEG SWITCH_SEQ_NUM TTL ACTION_SEQ_NUM SWITCH_ID SWITCH_ID_ACTION INTERFACE_ID RETRANSMITTED FLOW_ID PACKET_SIZE)
+    local cats=(QUEUE_LEN QUEUES_TOT_LEN QUEUE_CAPACITY QUEUES_TOT_CAPACITY PACKET_ACTION RCV_TS_SEQ_NUM SND_TS_SEQ_NUM OOO_SEG SWITCH_SEQ_NUM TTL ACTION_SEQ_NUM SWITCH_ID SWITCH_ID_ACTION INTERFACE_ID RETRANSMITTED FLOW_ID PACKET_SIZE REQUESTER_ID FLOW_STARTED FLOW_ENDED)
 
     if [ "$extracted_dir" = "extracted_results" ]; then
         for c in "${cats[@]}"; do
@@ -117,7 +117,7 @@ process_threshold() {
         # Debug: Check file counts and sizes before running create_dataset.py
         echo "Debug info for threshold $threshold:"
         echo "Files in results_1G directories:"
-        for dir in QUEUE_CAPACITY QUEUES_TOT_CAPACITY QUEUE_LEN QUEUES_TOT_LEN SWITCH_SEQ_NUM TTL PACKET_SIZE ACTION_SEQ_NUM PACKET_ACTION; do
+        for dir in QUEUE_CAPACITY QUEUES_TOT_CAPACITY QUEUE_LEN QUEUES_TOT_LEN SWITCH_SEQ_NUM TTL PACKET_SIZE ACTION_SEQ_NUM PACKET_ACTION REQUESTER_ID FLOW_STARTED FLOW_ENDED; do
             if [ -d "results_1G/$dir" ]; then
                 file_count=$(ls results_1G/$dir/*.csv 2>/dev/null | wc -l)
                 if [ $file_count -gt 0 ]; then

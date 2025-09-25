@@ -5,7 +5,6 @@ import hashlib
 from os import listdir
 from os.path import isfile, join
 
-RESULT_FILES_DIR = './'  # Changed to current directory since we're called from within threshold dir
 UNDER_SAME_RACK = 1
 LEAF_SPINE = 2
 TOPOLOGY = LEAF_SPINE
@@ -15,14 +14,15 @@ OUTPUT_FILE_DIRECTORY = f'{SIMS_DIR}/extracted_results/'
 
 if len(sys.argv) > 1:
     add_category = sys.argv[1]
+    # Set the results directory based on the category
+    RESULT_FILES_DIR = f'./results/{add_category}/'
 else:
     add_category = input('What to add to category?')
     final_check = input('Your output directory is:{}\n and your category is: {}?'.format(OUTPUT_FILE_DIRECTORY, add_category))
     if final_check != 'yes':
         raise Exception('You did not accepted!')
+    RESULT_FILES_DIR = f'./results/{add_category}/'
 category = add_category
-
-print("aaa")
 
 # Look for .vec files with _rep_ pattern in current directory
 onlyfiles = [f for f in listdir(RESULT_FILES_DIR) if
@@ -31,7 +31,7 @@ onlyfiles = [f for f in listdir(RESULT_FILES_DIR) if
 print(f"Found {len(onlyfiles)} .vec files")
 
 # Write extractor script to correct location
-f = open('../../../extractor.sh', 'w')
+f = open('extractor.sh', 'w')
 f.write('#!/bin/bash\n')
 f.write('# Auto-generated extractor script\n\n')
 
@@ -58,10 +58,10 @@ for file_name in onlyfiles:
 
 
     for rep_num in range(REP_NUM):
-        # Use the actual filename instead of reconstructing it
-        vector_file_name = file_name
-        scalar_file_name = file_name.replace('.vec', '.sca')
-        index_file_name = file_name.replace('.vec', '.vci')
+        # Use the actual filename with proper path
+        vector_file_name = f"{add_category}/{file_name}"
+        scalar_file_name = f"{add_category}/{file_name.replace('.vec', '.sca')}"
+        index_file_name = f"{add_category}/{file_name.replace('.vec', '.vci')}"
 
         # Create a shorter output filename to avoid filesystem limits
         import hashlib
@@ -84,20 +84,6 @@ for file_name in onlyfiles:
 
         '''
         # Flow- and requester-related extractions (enabled for RL dataset enrichment)
-        output_dir_name = 'FLOW_ENDED/'
-        command = "scavetool x --type v --filter \"module(**.server[*].app[*]) AND " \
-                  "\\\"flowEndedRequesterID:vector\\\"\" -o {} -F CSV-S {}\n".format(
-            OUTPUT_FILE_DIRECTORY + output_dir_name + output_file_name, vector_file_name)
-        print(command)
-        f.write('echo \"{}\"\n'.format(output_dir_name))
-        f.write(command)
-
-        output_dir_name = 'FLOW_STARTED/'
-        command = "scavetool x --type v --filter \"module(**.server[*].app[*]) AND " \
-                   "\\\"flowStartedRequesterID:vector\\\"\" -o {} -F CSV-S {}\n".format(OUTPUT_FILE_DIRECTORY+output_dir_name+output_file_name, vector_file_name)
-        print(command)
-        f.write('echo \"{}\"\n'.format(output_dir_name))
-        f.write(command)
 
         output_dir_name = 'REQUEST_SENT/'
         command = "scavetool x --type v --filter \"module(**.server[*].app[*]) AND " \
@@ -114,13 +100,6 @@ for file_name in onlyfiles:
         f.write(command)
 
         # Requester ID per packet at switches (note: signal is 'requesterID' in code)
-        output_dir_name = 'REQUESTER_ID/'
-        command = "scavetool x --type v --filter \"module(**.**.relayUnit) AND " \
-                  "\\\"RequesterID:vector\\\"\" -o {} -F CSV-S {}\n".format(OUTPUT_FILE_DIRECTORY+output_dir_name+output_file_name, vector_file_name)
-        print(command)
-        f.write('echo \"{}\"\n'.format(output_dir_name))
-        f.write(command)
-        
         output_dir_name = 'SYN_SENT/'
         command = "scavetool x --type v --filter \"module(**.server[*].tcp) AND " \
                   "\\\"tcpConnectionSYNSent:vector\\\"\" -o {} -F CSV-S {}\n".format(OUTPUT_FILE_DIRECTORY+output_dir_name+output_file_name, vector_file_name)
@@ -743,7 +722,7 @@ for file_name in onlyfiles:
         output_dir_name = 'REQUESTER_ID/'
         # Note: the statistic name in NED is 'RequesterID' (capital R), scavetool matches the statistic name, not the signal
         command = "scavetool x --type v --filter \"module(**.**.relayUnit) AND " \
-            "\\\"RequesterID:vector\\\"\" -o {} -F CSV-R {}\n".format(OUTPUT_FILE_DIRECTORY + output_dir_name + output_file_name, vector_file_name)
+            "\\\"RequesterID:vector\\\"\" -o {} -F CSV-S {}\n".format(OUTPUT_FILE_DIRECTORY + output_dir_name + output_file_name, vector_file_name)
         print(command)
         f.write('echo \"{}\"\n'.format(output_dir_name))
         f.write(command)
@@ -754,7 +733,7 @@ for file_name in onlyfiles:
 
         output_dir_name = 'FLOW_STARTED/'
         command = "scavetool x --type v --filter \"module(**.server[*].app[*]) AND " \
-            "\\\"flowStartedRequesterID:vector\\\"\" -o {} -F CSV-R {}\n".format(OUTPUT_FILE_DIRECTORY + output_dir_name + output_file_name, vector_file_name)
+            "\\\"flowStartedRequesterID:vector\\\"\" -o {} -F CSV-S {}\n".format(OUTPUT_FILE_DIRECTORY + output_dir_name + output_file_name, vector_file_name)
         print(command)
         f.write('echo \"{}\"\n'.format(output_dir_name))
         f.write(command)
@@ -765,7 +744,7 @@ for file_name in onlyfiles:
 
         output_dir_name = 'FLOW_ENDED/'
         command = "scavetool x --type v --filter \"module(**.server[*].app[*]) AND " \
-            "\\\"flowEndedRequesterID:vector\\\"\" -o {} -F CSV-R {}\n".format(OUTPUT_FILE_DIRECTORY + output_dir_name + output_file_name, vector_file_name)
+            "\\\"flowEndedRequesterID:vector\\\"\" -o {} -F CSV-S {}\n".format(OUTPUT_FILE_DIRECTORY + output_dir_name + output_file_name, vector_file_name)
         print(command)
         f.write('echo \"{}\"\n'.format(output_dir_name))
         f.write(command)

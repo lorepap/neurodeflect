@@ -42,7 +42,7 @@ class DatacenterDeflectionEnv(gym.Env):
         print(f"Loaded dataset with {len(self.dataset)} records")
         
         # Define optimal real-time features for autonomous deflection decisions
-        # NO threshold or switch type - model must learn optimal deflection autonomously
+        # Using the agreed 3-feature state space: queue_utilization, total_occupancy, ttl_priority
         
         # Extract base features
         feature_data = []
@@ -53,39 +53,15 @@ class DatacenterDeflectionEnv(gym.Env):
         feature_data.append(queue_utilization.values)
         self.feature_names.append('queue_utilization')
         
-        # 2. Total network utilization (global congestion context)
-        total_utilization = self.dataset['total_occupancy'] / (self.dataset['total_capacity'] + 1e-8)
-        feature_data.append(total_utilization.values)
-        self.feature_names.append('total_utilization')
+        # 2. Total occupancy (global congestion context - raw value)
+        total_occupancy = self.dataset['total_occupancy']
+        feature_data.append(total_occupancy.values)
+        self.feature_names.append('total_occupancy')
         
         # 3. TTL priority (packet urgency - higher value = more hops traveled)
         ttl_priority = (250 - self.dataset['ttl']) / 250.0
         feature_data.append(ttl_priority.values)
         self.feature_names.append('ttl_priority')
-        
-        # 4. Out-of-order indicator (deflection cost - OOO packets hurt performance)
-        ooo_indicator = self.dataset['ooo'].values.astype(float)
-        feature_data.append(ooo_indicator)
-        self.feature_names.append('ooo_indicator')
-        
-        # 5. Packet delay (one-way delay: end_time - start_time)
-        packet_delay = (self.dataset['end_time'] - self.dataset['start_time']).values
-        feature_data.append(packet_delay)
-        self.feature_names.append('packet_delay')
-        
-        # 6. FCT contribution (how this packet's delay affects flow completion time)
-        # Compute how much this packet's delay contributes to overall FCT (vectorized)
-        packet_delays = (self.dataset['end_time'] - self.dataset['start_time']).values
-        flow_fcts = self.dataset['FCT'].values
-        
-        # FCT contribution: packet delay as fraction of total flow completion time
-        # Avoid division by zero
-        fct_contribution = np.divide(packet_delays, flow_fcts, 
-                                   out=np.zeros_like(packet_delays), 
-                                   where=flow_fcts!=0)
-        
-        feature_data.append(fct_contribution)
-        self.feature_names.append('fct_contribution')
         
         # Combine features into state matrix
         self.features = np.column_stack(feature_data)
@@ -212,59 +188,158 @@ class DatacenterDeflectionEnv(gym.Env):
             'actions': episode_actions,
             'start_idx': start_idx,
             'end_idx': end_idx,
-            'current_step': 0
+            'current_step': 0,
+            'dataset_indices': list(range(start_idx, end_idx))  # Track dataset row indices
         }
     
     def _compute_reward(self, state: np.ndarray, action: int, next_state: np.ndarray) -> float:
         """
-        Packet-level reward for offline RL training.
-        Focuses on packet characteristics only, avoiding misleading network state comparisons.
+        Performance-based reward function using actual network outcomes.
+        State features: [queue_utilization, total_occupancy, ttl_priority]
+        
+        Key principle: Reward based on OUTCOMES (delays, FCT, OOO), 
+        not state features (to avoid double-counting).
         """
-        reward = 0.0
+        # Get the current dataset row index
+        if (hasattr(self, 'current_episode_data') and 
+            self.current_episode_data is not None and 
+            'dataset_indices' in self.current_episode_data):
+            
+            step_idx = self.current_step - 1 if self.current_step > 0 else 0
+            if step_idx < len(self.current_episode_data['dataset_indices']):
+                current_idx = self.current_episode_data['dataset_indices'][step_idx]
+            else:
+                current_idx = self.current_episode_data['dataset_indices'][-1]
+        else:
+            # Fallback
+            current_idx = 0
         
-        # Extract current state features
-        queue_util = state[0]         # Queue utilization
-        total_util = state[1]         # Total network utilization  
-        ttl_priority = state[2]       # TTL priority
-        ooo_indicator = state[3]      # Out-of-order indicator
-        packet_delay = state[4]       # Packet one-way delay
-        fct_contribution = state[5]   # FCT contribution factor
+        # Extract performance metrics from dataset row
+        row = self.dataset.iloc[current_idx]
         
+        # Performance metrics (outcomes)
+        fct = row['FCT']                           # Flow completion time
+        ooo_flag = row['ooo']                      # Out-of-order flag (0/1)
+        packet_delay = row['end_time'] - row['start_time']  # One-way packet delay
+        
+        # Flow contribution: How much this packet's delay contributes to the overall FCT
+        # This measures whether deflecting this packet helps or hurts the flow
+        flow_contribution = self._compute_flow_contribution(row, current_idx)
+        
+        # Base action rewards
         if action == 0:  # FORWARD
             reward = 0.1  # Normal operation baseline
-            
         elif action == 1:  # DEFLECT  
-            reward = -0.1  # Deflection is inherently costly (latency)
+            reward = -0.05  # Small deflection cost
+        else:
+            reward = 0.0  # Unknown action
+        
+        # OUTCOME-BASED PENALTIES (what we actually care about):
+        
+        # 1. FCT PENALTY: Penalize actions that lead to high FCT
+        # FCT is the ultimate performance metric
+        if fct > 0:
+            # Normalize FCT (typical values range from 1e-5 to 0.002 seconds)
+            normalized_fct = min(fct / 0.01, 1.0)  # Cap at 1.0
             
-            # REMOVED: Network state improvement bonus - misleading in offline setting
-            # In offline RL, next_state is from pre-recorded data, not caused by our action
-        
-        # PACKET-LEVEL PERFORMANCE PENALTIES (valid in offline setting):
-        # These penalties are based on packet characteristics, not network state transitions
-        
-        # 1. OUT-OF-ORDER PENALTY: Always penalize OOO packets
-        if ooo_indicator > 0:  # This packet is out-of-order
-            ooo_penalty = -0.2 * ooo_indicator
-            reward += ooo_penalty
-        
-        # 2. PACKET DELAY PENALTY: Penalize high delay packets
-        # Normalized delay penalty (assuming delays are normalized)
-        if packet_delay > 0:  # High delay is bad for performance
-            delay_penalty = -0.1 * abs(packet_delay)  # Penalty proportional to delay
-            reward += delay_penalty
-        
-        # 3. FCT CONTRIBUTION PENALTY: Penalize actions that hurt flow completion
-        # Higher FCT contribution means this packet is more critical to flow completion
-        if fct_contribution > 0:
-            # If deflecting a critical packet (high FCT impact), bigger penalty
             if action == 1:  # Deflection
-                fct_penalty = -0.15 * fct_contribution  # Critical packets shouldn't be deflected
+                # Deflection might increase FCT, so penalty if FCT is high
+                fct_penalty = -0.3 * normalized_fct
                 reward += fct_penalty
-            else:  # Forwarding critical packets is good
-                fct_bonus = 0.05 * fct_contribution
-                reward += fct_bonus
+            else:  # Forward
+                # Forwarding should ideally minimize FCT
+                # Small penalty if FCT is still high despite forwarding
+                fct_penalty = -0.1 * normalized_fct
+                reward += fct_penalty
+        
+        # 2. OUT-OF-ORDER PENALTY: Strong penalty for OOO packets
+        # OOO packets hurt application performance significantly
+        if ooo_flag > 0:
+            if action == 1:  # Deflection caused/contributed to OOO
+                reward += -0.4  # Strong penalty
+            else:  # Forward but still OOO (might be from previous deflections)
+                reward += -0.2  # Moderate penalty
+        
+        # 3. PACKET DELAY PENALTY: Penalize high one-way delays
+        # High delays hurt user experience
+        if packet_delay > 0:
+            # Normalize delay (typical values range from 1e-5 to 0.1 seconds)
+            normalized_delay = min(packet_delay / 0.1, 1.0)  # Cap at 1.0
+            
+            if action == 1:  # Deflection adds delay
+                delay_penalty = -0.2 * normalized_delay
+                reward += delay_penalty
+            # No penalty for forwarding - delay might be due to congestion
+        
+        # 4. DEFLECTION SUCCESS BONUS: Reward deflection if it actually helps
+        # Only reward deflection if it's in a high-FCT, high-delay context
+        # where deflection might be beneficial for load balancing
+        if action == 1 and fct > 0.001 and packet_delay > 0.01:
+            # Deflection in high-congestion scenario might help overall
+            reward += 0.1  # Small bonus for potentially helpful deflection
+        
+        # 5. FLOW CONTRIBUTION: Reward/penalize based on how packet delay affects FCT
+        # Positive contribution = packet helps flow, negative = packet hurts flow
+        if flow_contribution != 0:
+            if action == 1:  # Deflection
+                # If deflection reduces negative flow contribution, reward it
+                # If deflection increases positive flow contribution, penalize it
+                contribution_reward = -0.15 * flow_contribution
+                reward += contribution_reward
+            else:  # Forward
+                # If forwarding maintains positive flow contribution, small reward
+                # If forwarding maintains negative contribution, small penalty
+                contribution_reward = 0.05 * max(0, flow_contribution)
+                reward += contribution_reward
         
         return np.clip(reward, -1.0, 1.0)
+    
+    def _compute_flow_contribution(self, packet_row, current_idx: int) -> float:
+        """
+        Compute how much this packet's delay contributes to the flow's FCT.
+        
+        Flow contribution = (packet_delay - avg_flow_packet_delay) / FCT
+        
+        Positive values mean packet delay is above average for the flow (hurts FCT)
+        Negative values mean packet delay is below average for the flow (helps FCT)
+        
+        Args:
+            packet_row: Current packet's data row
+            current_idx: Index in the dataset
+            
+        Returns:
+            Normalized flow contribution score [-1, 1]
+        """
+        try:
+            flow_id = packet_row['FlowID']
+            packet_delay = packet_row['end_time'] - packet_row['start_time']
+            fct = packet_row['FCT']
+            
+            if fct <= 0:
+                return 0.0
+            
+            # Get all packets for this flow
+            flow_packets = self.dataset[self.dataset['FlowID'] == flow_id]
+            
+            if len(flow_packets) <= 1:
+                return 0.0  # Single packet flow, no contribution to compute
+            
+            # Compute average packet delay for this flow
+            flow_packet_delays = (flow_packets['end_time'] - flow_packets['start_time'])
+            avg_flow_delay = flow_packet_delays.mean()
+            
+            # Flow contribution: how much this packet deviates from flow average
+            delay_deviation = packet_delay - avg_flow_delay
+            
+            # Normalize by FCT to get relative contribution
+            contribution = delay_deviation / fct
+            
+            # Clip to reasonable range [-1, 1]
+            return np.clip(contribution, -1.0, 1.0)
+            
+        except (KeyError, ZeroDivisionError, ValueError):
+            # If any required columns are missing or computation fails
+            return 0.0
     
     def reset(self, seed: Optional[int] = None, options: Optional[Dict] = None) -> Tuple[np.ndarray, Dict]:
         """Reset environment for a new episode."""

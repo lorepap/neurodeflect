@@ -52,13 +52,13 @@ def main():
         forwarded_packets = len(subset[subset['action'] == 0])  # action=0 means forward
         
         # Flow-level analysis
-        unique_flows = subset['FlowID'].nunique()
-        flows_with_deflections = subset[subset['action'] == 1]['FlowID'].nunique()
+        unique_flows = subset['RequesterID'].nunique()
+        flows_with_deflections = subset[subset['action'] == 1]['RequesterID'].nunique()
         
         # Rates and averages
         deflection_rate = deflected_packets / total_packets if total_packets > 0 else 0
         flow_deflection_rate = flows_with_deflections / unique_flows if unique_flows > 0 else 0
-        avg_packets_per_flow = subset['flow_packet_count'].mean()
+        # avg_packets_per_flow = subset['flow_packet_count'].mean()
         avg_fct = subset['FCT'].mean()
         
         # Out-of-order analysis (separate from deflection)
@@ -80,7 +80,7 @@ def main():
             'flow_deflection_rate': flow_deflection_rate,
             'total_ooo_packets': total_ooo_packets,
             'avg_ooo_per_flow': avg_ooo_per_flow,
-            'avg_packets_per_flow': avg_packets_per_flow,
+            # 'avg_packets_per_flow': avg_packets_per_flow,
             'avg_fct_ms': avg_fct * 1000  # Convert to milliseconds
         })
     
@@ -97,7 +97,7 @@ def main():
         print(f"  Flows with deflections: {row['flows_with_deflections']} ({row['flow_deflection_rate']:.1%})")
         print(f"  Forwarded packets: {row['forwarded_packets']}")
         print(f"  Total OOO packets: {int(row['total_ooo_packets'])} ({row['avg_ooo_per_flow']:.2f} avg per flow)")
-        print(f"  Avg packets/flow: {row['avg_packets_per_flow']:.1f}")
+        # print(f"  Avg packets/flow: {row['avg_packets_per_flow']:.1f}")
         print(f"  Avg FCT: {row['avg_fct_ms']:.3f} ms")
         print()
     

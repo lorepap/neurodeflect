@@ -31,24 +31,18 @@ do_extract_with_threshold () {
     local config_name=$2
     echo "Extracting results for threshold ${threshold}..."
     
-    # Enter the threshold results directory first so the extractor generator
-    # scans the correct files (it expects to be run from the directory
-    # containing the .vec/.sca files).
-    pushd ./results/threshold_${threshold}/
-    # Run generator (relative path back to the generator in the sims dir)
-    # Use category prefix 'deflection_threshold_<thr>' for output filenames
-    python3 ../../extractor_shell_creator.py deflection_threshold_${threshold}
-    # Run the generated extractor script (script is written three levels up
-    # by the generator and is designed to be executed from inside the
-    # threshold directory so scavetool can open the vector files by name).
-    bash ../../../extractor.sh
+
+    python3 ./extractor_shell_creator.py threshold_${threshold}
+    pushd ./results
+    pwd
+    bash ../extractor.sh
     popd
     sleep 5
 }
 
 # Clean up previous results
-rm -rf results
-rm -rf logs/deflection_threshold_*
+# rm -rf results
+# rm -rf logs/deflection_threshold_*
 
 # Create the directory structure to save extracted results
 bash dir_creator.sh
@@ -61,6 +55,7 @@ echo "-------------------------------------------"
 
 # Run the threshold variation configuration
 # This will automatically create separate runs for each threshold value
+
 opp_runall -j50 ../../src/dc_simulations -m -u Cmdenv -c DCTCP_SD_THRESHOLD_VARIATION -n ..:../../src:../../../inet/src:../../../inet/examples:../../../inet/tutorials:../../../inet/showcases --image-path=../../../inet/images -l ../../../inet/src/INET omnetpp_1G.ini --sim-time-limit=$SIMULATION_TIME
 
 # Process results for each threshold
@@ -110,3 +105,43 @@ for threshold in "${thresholds[@]}"; do
         ls -la results/threshold_${threshold}/
     fi
 done
+
+# Save extracted results in threshold-specific directories
+cats=(QUEUE_LEN QUEUES_TOT_LEN QUEUE_CAPACITY QUEUES_TOT_CAPACITY PACKET_ACTION RCV_TS_SEQ_NUM SND_TS_SEQ_NUM OOO_SEG SWITCH_SEQ_NUM TTL ACTION_SEQ_NUM SWITCH_ID SWITCH_ID_ACTION INTERFACE_ID RETRANSMITTED FLOW_ID PACKET_SIZE REQUESTER_ID FLOW_STARTED FLOW_ENDED)
+extracted_dir="extracted_results"
+
+for threshold in "${thresholds[@]}"; do
+    echo "Processing threshold ${threshold} for CSV organization..."
+    
+    if [ "$extracted_dir" = "extracted_results" ]; then
+        for c in "${cats[@]}"; do
+            mkdir -p "results_1G_thr_${threshold}/${c}"
+            # copy only matching CSVs for this threshold - prefer manually extracted files
+            copied_files=0
+            
+            # Fixed syntax error: missing 'if' and proper condition structure
+            if compgen -G "${extracted_dir}/${c}/*threshold_${threshold}*.csv" > /dev/null 2>&1; then
+                cp ${extracted_dir}/${c}/*threshold_${threshold}*.csv "results_1G_thr_${threshold}/${c}/"
+                copied_files=1
+            fi
+            
+            if [ $copied_files -eq 0 ]; then
+                echo "⚠ No files found for category $c and threshold $threshold"
+            fi
+        done
+    else
+        # Already per-threshold structured; copy the whole directory
+        cp -r "$extracted_dir" "results_1G_thr_${threshold}"
+    fi
+
+    # Sanity: ensure we have CSVs
+    csv_count=$(find "results_1G_thr_${threshold}" -name "*.csv" -type f 2>/dev/null | wc -l)
+    if [ "$csv_count" -eq 0 ]; then
+        echo "✗ No CSV files found after preparation for threshold ${threshold}"
+        # Changed 'return 1' to 'continue' since we're in a loop, not a function
+        continue
+    fi
+    echo "✓ Staged $csv_count CSV files into results_1G_thr_${threshold}/"
+done
+
+echo "\n\nAll done! Extracted results are in results_1G_thr_<threshold>/ directories."

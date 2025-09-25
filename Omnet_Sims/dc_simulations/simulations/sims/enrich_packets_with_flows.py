@@ -4,13 +4,13 @@ Packet-Level Flow Enrichment Script
 
 This script enriches packet-level data with flow-level information.
 Each row remains a packet, but gets additional flow context:
-- FlowID: Flow identifier for grouping packets
-- FCT: Flow Completion Time (same for all packets in a flow)
-- flow_start_time: When the flow started
-- flow_end_time: When the flow ended
+- RequesterID: Flow identifier from server that initiated the flow
+- FCT: Flow Completion Time (calculated from server-side flow start/end signals)
+- flow_start_time: When the flow started (from server logs)
+- flow_end_time: When the flow ended (from server logs) 
 - flow_packet_count: Total packets in this flow
 - packet_position: Position of this packet within the flow (1, 2, 3, ...)
-- SWITCH_ID: Switch where the packet was processed
+- SWITCH_ID: Switch where the packet was processed 
 
 Input: Packet-level dataset with columns: timestamp, capacity, total_capacity, occupancy, total_occupancy, seq_num, ttl, packet_size, action
 Output: Same packet-level data enriched with flow information
@@ -21,6 +21,7 @@ import glob
 import pandas as pd
 import numpy as np
 import argparse
+import traceback
 from collections import defaultdict
 import sys
 
@@ -50,6 +51,61 @@ def load_csvs_vecs(folder: str, name: str):
     out = pd.concat(dfs, ignore_index=True)
     if 'timestamp' in out.columns:
         out = out.sort_values('timestamp').reset_index(drop=True)
+    return out
+
+def load_wide_csv_requester_id(folder: str, name: str):
+    """Load RequesterID data from wide CSV format with multiple switches per file"""
+    pattern = os.path.join(folder, '*.csv')
+    files = sorted(glob.glob(pattern))
+    if not files:
+        return pd.DataFrame(columns=['timestamp', name])
+    
+    dfs = []
+    for fp in files:
+        try:
+            print(f"Processing {os.path.basename(fp)} for {name}")
+            
+            # Read the CSV file
+            df = pd.read_csv(fp)
+            
+            # The file has multiple columns representing different switches
+            # Each pair of columns is (timestamp, RequesterID) for a specific switch
+            data_rows = []
+            
+            # Process each row
+            for idx, row in df.iterrows():
+                # Extract timestamp,value pairs from each row
+                # Skip first column (header info) and process in pairs
+                row_values = row.values
+                
+                # Process pairs of columns: timestamp, value
+                for i in range(0, len(row_values), 2):
+                    if i + 1 < len(row_values):
+                        try:
+                            timestamp = pd.to_numeric(row_values[i], errors='coerce')
+                            value = pd.to_numeric(row_values[i + 1], errors='coerce')
+                            
+                            if pd.notna(timestamp) and pd.notna(value):
+                                data_rows.append([timestamp, value])
+                        except:
+                            continue
+            
+            if data_rows:
+                dfi = pd.DataFrame(data_rows, columns=['timestamp', name])
+                dfi = dfi.drop_duplicates().sort_values('timestamp').reset_index(drop=True)
+                print(f"  Loaded {len(dfi)} {name} records")
+                print(f"  Sample values: {sorted(dfi[name].unique())[:10]}")
+                dfs.append(dfi)
+                
+        except Exception as e:
+            print(f"Error processing {fp}: {e}")
+            continue
+    
+    if not dfs:
+        return pd.DataFrame(columns=['timestamp', name])
+    
+    out = pd.concat(dfs, ignore_index=True)
+    out = out.drop_duplicates().sort_values('timestamp').reset_index(drop=True)
     return out
 
 def load_csvr_flowid_vecs(folder: str, name: str):
@@ -161,44 +217,38 @@ def enrich_packets_with_flows(input_file, results_dir, output_file, log_file=Non
             log("No data to process")
             return False
         
-        # Load flow-related data
-        log("Loading flow identification data...")
-        flow_id_df = load_csvr_flowid_vecs(os.path.join(results_dir, 'FLOW_ID'), 'FlowID')
+        # Load RequesterID data from switch logs
+        log("Loading RequesterID data from switch logs...")
+        requester_id_df = load_wide_csv_requester_id(os.path.join(results_dir, 'REQUESTER_ID'), 'RequesterID')
         
-        if len(flow_id_df) == 0:
-            log("Warning: No FlowID data found, will use seq_num for grouping")
-            # Fallback: group by seq_num
-            df['FlowID'] = df['seq_num']
+        if len(requester_id_df) == 0:
+            log("Warning: No RequesterID data found")
+            df['RequesterID'] = np.nan
         else:
-            log(f"Found {len(flow_id_df)} FlowID records")
+            log(f"Found {len(requester_id_df)} RequesterID records")
             
             # OPTIMIZED: Use pandas merge for fast timestamp-based matching
-            log("Performing optimized FlowID assignment...")
+            log("Performing optimized RequesterID assignment...")
             
             # Round timestamps to avoid floating point precision issues
             df['timestamp_rounded'] = df['timestamp'].round(12)
-            flow_id_df['timestamp_rounded'] = flow_id_df['timestamp'].round(12)
+            requester_id_df['timestamp_rounded'] = requester_id_df['timestamp'].round(12)
             
             # Use pandas merge for O(n log n) performance instead of O(n*m)
-            df_with_flow = df.merge(
-                flow_id_df[['timestamp_rounded', 'FlowID']], 
+            df_with_requester = df.merge(
+                requester_id_df[['timestamp_rounded', 'RequesterID']], 
                 on='timestamp_rounded', 
                 how='left'
             )
             
             # Count successful matches
-            matched_count = df_with_flow['FlowID'].notna().sum()
-            unmatched_count = df_with_flow['FlowID'].isna().sum()
+            matched_count = df_with_requester['RequesterID'].notna().sum()
+            unmatched_count = df_with_requester['RequesterID'].isna().sum()
             
-            log(f"FlowID assignment: {matched_count} matched, {unmatched_count} unmatched")
-            
-            # For unmatched packets, use seq_num as fallback
-            if unmatched_count > 0:
-                log(f"Using seq_num fallback for {unmatched_count} unmatched packets")
-                df_with_flow['FlowID'] = df_with_flow['FlowID'].fillna(df_with_flow['seq_num'])
+            log(f"RequesterID assignment: {matched_count} matched, {unmatched_count} unmatched")
             
             # Update the main dataframe
-            df = df_with_flow.drop(columns=['timestamp_rounded'])
+            df = df_with_requester.drop(columns=['timestamp_rounded'])
         
         # Load switch ID data
         log("Loading switch ID data...")
@@ -232,50 +282,55 @@ def enrich_packets_with_flows(input_file, results_dir, output_file, log_file=Non
             
             # Update the main dataframe
             df = df_with_switch.drop(columns=['timestamp_rounded'])
+
+        # Load flow start and end times from server logs
+        log("Loading flow start times...")
+        flow_started_df = load_wide_csv_requester_id(os.path.join(results_dir, 'FLOW_STARTED'), 'RequesterID')
+        flow_started_df.rename(columns={'timestamp': 'flow_start_time'}, inplace=True)
         
-        # Calculate flow-level statistics
-        log("Calculating flow-level statistics...")
-        flow_stats = df.groupby('FlowID').agg({
-            'timestamp': ['min', 'max', 'count'],
-            'seq_num': 'first'
-        }).round(12)
+        log("Loading flow end times...")
+        flow_ended_df = load_wide_csv_requester_id(os.path.join(results_dir, 'FLOW_ENDED'), 'RequesterID')
+        flow_ended_df.rename(columns={'timestamp': 'flow_end_time'}, inplace=True)
         
-        # Flatten column names
-        flow_stats.columns = ['flow_start_time', 'flow_end_time', 'flow_packet_count', 'first_seq_num']
-        flow_stats['FCT'] = flow_stats['flow_end_time'] - flow_stats['flow_start_time']
-        flow_stats = flow_stats.reset_index()
+        # Merge flow timing data with packet data using RequesterID
+        if len(flow_started_df) > 0:
+            log(f"Found {len(flow_started_df)} flow start records")
+            df = df.merge(flow_started_df, on='RequesterID', how='left')
+        else:
+            log("Warning: No flow start data found")
+            df['flow_start_time'] = np.nan
+            
+        if len(flow_ended_df) > 0:
+            log(f"Found {len(flow_ended_df)} flow end records")
+            df = df.merge(flow_ended_df, on='RequesterID', how='left')
+        else:
+            log("Warning: No flow end data found")
+            df['flow_end_time'] = np.nan
         
-        log(f"Identified {len(flow_stats)} unique flows")
-        log(f"Flow packet counts: min={flow_stats['flow_packet_count'].min()}, max={flow_stats['flow_packet_count'].max()}, mean={flow_stats['flow_packet_count'].mean():.1f}")
+        # Calculate FCT (Flow Completion Time) for each packet row
+        log("Calculating Flow Completion Time (FCT) for each packet...")
+        df['FCT'] = df['flow_end_time'] - df['flow_start_time']
         
-        # Add packet position within flow - PRESERVE ORIGINAL ORDER
+        # Add packet position within flow based on RequesterID
         log("Adding packet positions within flows...")
-        # IMPORTANT: Do NOT sort by timestamp here! This destroys the original network order
-        # Instead, use the original data order which represents when packets arrived at the switch
-        df['packet_position'] = df.groupby('FlowID').cumcount() + 1
+        df['packet_position'] = df.groupby('RequesterID').cumcount() + 1
         
-        # Now we can create a sorted version for flow statistics calculations
-        df_sorted = df.sort_values(['FlowID', 'timestamp']).reset_index(drop=True)
+        # Calculate deflection statistics per flow based on RequesterID
+        # log("Calculating deflection statistics per flow...")
+        # deflection_stats = df.groupby('RequesterID')['action'].agg(['sum', 'count']).reset_index()
+        # deflection_stats.columns = ['RequesterID', 'deflection_count', 'total_packets']
+        # deflection_stats['deflection_rate'] = deflection_stats['deflection_count'] / deflection_stats['total_packets']
         
-        # Merge flow statistics back to packet data
-        log("Merging flow statistics with packet data...")
-        df_enriched = df.merge(flow_stats[['FlowID', 'flow_start_time', 'flow_end_time', 'flow_packet_count', 'FCT']], 
-                              on='FlowID', how='left')
-        
-        # Check for deflection statistics per flow
-        deflection_stats = df_enriched.groupby('FlowID')['action'].agg(['sum', 'count']).reset_index()
-        deflection_stats.columns = ['FlowID', 'deflection_count', 'total_packets']
-        deflection_stats['deflection_rate'] = deflection_stats['deflection_count'] / deflection_stats['total_packets']
-        
-        # Add deflection statistics
-        df_enriched = df_enriched.merge(deflection_stats[['FlowID', 'deflection_count', 'deflection_rate']], 
-                                       on='FlowID', how='left')
+        # Add deflection statistics to each packet row
+        # df_enriched = df.merge(deflection_stats[['RequesterID', 'deflection_count', 'deflection_rate']], 
+        #                       on='RequesterID', how='left')
+
+        df_enriched = df.copy() # just removed the deflection statistics (not needed)
         
         # Reorder columns for better readability
         column_order = [
-            'timestamp', 'FlowID', 'seq_num', 'packet_position',
-            'flow_start_time', 'flow_end_time', 'FCT', 'flow_packet_count',
-            'deflection_count', 'deflection_rate',
+            'timestamp', 'RequesterID', 'seq_num', 'packet_position',
+            'flow_start_time', 'flow_end_time', 'FCT',
             'action', 'capacity', 'total_capacity', 'occupancy', 'total_occupancy', 
             'ttl', 'packet_size', 'SWITCH_ID', 'ooo'  # Added OOO feature
         ]
@@ -292,7 +347,7 @@ def enrich_packets_with_flows(input_file, results_dir, output_file, log_file=Non
         # Sort by timestamp for chronological order
         df_final = df_final.sort_values('timestamp').reset_index(drop=True)
         
-        log(f"Final dataset: {len(df_final)} packets across {df_final['FlowID'].nunique()} flows")
+        log(f"Final dataset: {len(df_final)} packets across {df_final['RequesterID'].nunique()} flows")
         log(f"Deflection statistics: {df_final['action'].sum()} deflections out of {len(df_final)} packets ({df_final['action'].mean()*100:.1f}% deflection rate)")
         
         # Save the enriched dataset
