@@ -164,6 +164,13 @@ void BouncingIeee8021dRelay::initialize(int stage)
         filter_out_full_ports = getAncestorPar("filter_out_full_ports");
         approximate_random_deflection = getAncestorPar("approximate_random_deflection");
 
+    // UNIFORM RANDOM
+    bounce_uniform_random = getAncestorPar("bounce_uniform_random");
+    // RNG seed base for per-switch independent randomness
+    uniform_random_seed_base = (unsigned int)getAncestorPar("uniform_random_seed_base");
+    // Per-decision deflection probability for uniform-random mode
+    uniform_random_deflect_prob = getAncestorPar("uniform_random_deflect_prob");
+
         // Vertigo
         bounce_on_same_path = getAncestorPar("bounce_on_same_path");
         random_power_bounce_factor = getAncestorPar("random_power_bounce_factor");
@@ -276,10 +283,11 @@ void BouncingIeee8021dRelay::initialize(int stage)
             read_inc_deflection_properties(incremental_deployment_identifier, incremental_deployment_file_name);
             can_deflect = (deployed_with_deflection == 1);
             deflection_graph_partitioned = getAncestorPar("deflection_graph_partitioned");
-        } else {
-            can_deflect = bounce_naively || bounce_randomly || bounce_on_same_path || bounce_randomly_v2 ||
-                    bounce_probabilistically || bounce_with_rl_policy;
-        }
+    } else {
+        // Include bounce_uniform_random so setting that flag alone can enable deflection
+        can_deflect = bounce_naively || bounce_randomly || bounce_on_same_path || bounce_randomly_v2 ||
+            bounce_uniform_random || bounce_probabilistically || bounce_with_rl_policy;
+    }
 
         if (bounce_naively && naive_deflection_idx < 0)
             throw cRuntimeError("bounce_naively && naive_deflection_idx < 0");
@@ -456,6 +464,20 @@ void BouncingIeee8021dRelay::initialize(int stage)
         if (use_memory) {
             for (int i = 0; i < random_power_bounce_memory_size; i++)
                 deflection_memory.push_back(-1);
+        }
+        // Seed per-switch RNG for uniform-random mode.
+        // Use base + switch index + repetition to create independent, reproducible streams.
+        try {
+            unsigned int repetition_num = 0;
+            const char* repVar = getEnvir()->getConfigEx()->getVariable(CFGVAR_REPETITION);
+            if (repVar)
+                repetition_num = std::stoul(std::string(repVar));
+            unsigned int switch_idx = (unsigned int)getParentModule()->getIndex();
+            unsigned int seed = uniform_random_seed_base + switch_idx + repetition_num;
+            rng.seed(seed);
+            EV << "Seeded per-switch RNG with seed=" << seed << " for " << getFullPath() << endl;
+        } catch (...) {
+            // ignore and leave rng default-seeded
         }
     }
 }
@@ -885,6 +907,33 @@ InterfaceEntry* BouncingIeee8021dRelay::find_interface_to_bounce_randomly(Packet
     }
     EV << "Dropping the packet!" << endl;
     return nullptr;
+}
+
+InterfaceEntry* BouncingIeee8021dRelay::find_interface_to_bounce_uniform_random(Packet *packet) {
+    if (!can_deflect)
+        throw cRuntimeError("find_interface_to_bounce_uniform_random called! can deflect is false!");
+
+    if (port_idx_connected_to_switch_neioghbors.size() == 0)
+        return nullptr;
+
+    // Choose a neighbor index uniformly at random and return it without checking queue fullness.
+    int sz = port_idx_connected_to_switch_neioghbors.size();
+    std::uniform_int_distribution<int> dist(0, sz - 1);
+    int idx = dist(rng);
+    std::list<int>::iterator it = port_idx_connected_to_switch_neioghbors.begin();
+    std::advance(it, idx);
+    InterfaceEntry *ie = ifTable->getInterface(*it);
+
+    std::string other_side_input_module_path = getParentModule()->gate(getParentModule()->gateBaseId("ethg$o") + ie->getIndex())->getPathEndGate()->getFullPath();
+    bool is_other_side_input_module_path_server = other_side_input_module_path.find("server") != std::string::npos;
+    if (is_other_side_input_module_path_server) {
+        // If we accidentally picked a server-facing port, just return nullptr to indicate no deflection.
+        EV << "Uniform-random picked a server-facing port; skipping." << endl;
+        return nullptr;
+    }
+
+    EV << "Uniform-random chosen port id: " << ie->getInterfaceId() << endl;
+    return ie;
 }
 
 InterfaceEntry* BouncingIeee8021dRelay::find_interface_to_bounce_naively() {
@@ -1423,6 +1472,9 @@ InterfaceEntry* BouncingIeee8021dRelay::find_interface_to_fw_randomly_power_of_n
     EV << "Chosen port: " << module_path_string << endl;
     AugmentedEtherMac *mac = check_and_cast<AugmentedEtherMac *>(getModuleByPath(module_path_string.c_str()));
     ie = ifTable->getInterface(chosen_source_index);
+
+    // (logging for deflection decisions is performed where ie2 is in scope)
+
 
     if (!consider_servers) {
         std::string other_side_input_module_path = getParentModule()->gate(getParentModule()->gateBaseId("ethg$o")+ ie->getIndex())->getPathEndGate()->getFullPath();
@@ -2625,7 +2677,42 @@ void BouncingIeee8021dRelay::dispatch(Packet *packet, InterfaceEntry *ie)
 
 
 
-        if (can_deflect && bounce_probabilistically) {
+        if (can_deflect && bounce_uniform_random) {
+            // UNIFORM RANDOM deflection: 50% coin-flip to deflect, uniform choice of neighbor if deflecting
+            std::bernoulli_distribution coin(uniform_random_deflect_prob);
+            bool deflect = coin(rng);
+            EV << "Uniform-random deflect=" << deflect << " (p=" << uniform_random_deflect_prob << ") for packet " << packet->getName() << "\n";
+            if (deflect) {
+                if (bolt_is_packet_src(packet)) {
+                    ie2 = ie; // do not deflect SRC packets
+                } else {
+                    if (dctcp_mark_deflected_packets_only)
+                        dctcp_mark_ecn_for_deflected_packets(packet);
+                    mark_packet_deflection_tag(packet);
+                    if (is_tcp_with_payload) {
+                        emit(actionSeqNumSignal, hashedId);
+                        emit(switchIdActionSignal, switchId);
+                        emit(packetActionSignal, 1);
+                    }
+                    // Use the existing early-deflection machinery which applies
+                    // power-of-n selection and proper queue checks for bounced
+                    // packets. apply_early_deflection will either send the
+                    // packet (and return) or delete it if it cannot be bounced.
+                    apply_early_deflection(packet, false, ie);
+                    return; // packet already sent or deleted by apply_early_deflection
+                }
+            } else {
+                // Forward normally
+                ie2 = ie;
+                EV_INFO << "Normal forward for packet " << packet->getName() << "\n";
+                if (is_tcp_with_payload) {
+                    emit(actionSeqNumSignal, hashedId);
+                    emit(switchIdActionSignal, switchId);
+                    emit(packetActionSignal, 0);
+                }
+            }
+        }
+        else if (can_deflect && bounce_probabilistically) {
             // Using PABO
             ie2 = find_interface_to_bounce_probabilistically(packet, ie);
         }
@@ -2874,7 +2961,7 @@ void BouncingIeee8021dRelay::dispatch(Packet *packet, InterfaceEntry *ie)
     }
 
     if (ie2->getInterfaceId() != ie->getInterfaceId()) {
-        EV << "The output interface has changed as a result of bouncing." << endl;
+        EV_INFO << "The output interface has changed as a result of bouncing." << endl;
         emit(feedBackPacketGeneratedSignal, packet->getId());
         if(is_tcp_with_payload){
             emit(actionSeqNumSignal, hashedId);
@@ -2883,7 +2970,7 @@ void BouncingIeee8021dRelay::dispatch(Packet *packet, InterfaceEntry *ie)
         }
     }
     else{
-        EV << "The output interface is the same as the input interface. No bouncing." << endl;
+        EV_INFO << "The output interface is the same as the input interface. No bouncing." << endl;
         emit(feedBackPacketGeneratedSignal, packet->getId());
         if(is_tcp_with_payload){
             emit(actionSeqNumSignal, hashedId);

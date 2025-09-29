@@ -23,7 +23,18 @@ import os
 import pandas as pd
 
 
-def first_csv_in(folder: str) -> str:
+def first_csv_in(folder: str, experiment: str = None) -> str:
+    """
+    Return a single CSV path from folder.
+    If 'experiment' is provided, prefer files matching '*{experiment}*.csv'.
+    Otherwise fall back to the first CSV in the folder.
+    """
+    if experiment:
+        pattern = os.path.join(folder, f"*{experiment}*.csv")
+        files = glob.glob(pattern)
+        if files:
+            return files[0]
+        # fall through to generic pattern if no experiment-specific file found
     pattern = os.path.join(folder, "*.csv")
     files = glob.glob(pattern)
     if not files:
@@ -31,13 +42,13 @@ def first_csv_in(folder: str) -> str:
     return files[0]
 
 
-def zip_first_seven(folders, names):
+def zip_first_seven(folders, names, experiment: str = None):
     """
     Restituisce un DataFrame con 1 + len(folders) colonne:
         timestamp, <name1>, <name2>, ..., <nameN>
     """
     # csv0: timestamp + primo valore
-    csv0 = first_csv_in(folders[0])
+    csv0 = first_csv_in(folders[0], experiment)
     df = pd.read_csv(
         csv0,
         skiprows=1,
@@ -48,7 +59,7 @@ def zip_first_seven(folders, names):
 
     # i successivi: solo colonna valore
     for folder, colname in zip(folders[1:], names[1:]):
-        csv_path = first_csv_in(folder)
+        csv_path = first_csv_in(folder, experiment)
         col_df = pd.read_csv(
             csv_path,
             skiprows=1,
@@ -61,13 +72,13 @@ def zip_first_seven(folders, names):
     return df
 
 
-def zip_last_two(folder_seq, seq_colname, folder_action, action_colname):
+def zip_last_two(folder_seq, seq_colname, folder_action, action_colname, experiment: str = None):
     """
     Restituisce un DataFrame con:
         timestamp, seq_num (seq_colname), action (action_colname)
     """
     # primo file: timestamp e seq_num
-    csv_seq = first_csv_in(folder_seq)
+    csv_seq = first_csv_in(folder_seq, experiment)
     df = pd.read_csv(
         csv_seq,
         skiprows=1,
@@ -78,7 +89,7 @@ def zip_last_two(folder_seq, seq_colname, folder_action, action_colname):
     )
 
     # secondo file: action
-    csv_action = first_csv_in(folder_action)
+    csv_action = first_csv_in(folder_action, experiment)
     action_df = pd.read_csv(
         csv_action,
         skiprows=1,
@@ -118,7 +129,15 @@ def main():
     parser.add_argument("--name9",   default="action")
 
     parser.add_argument("--output",   default="results_1G/merged_final.csv")
+    parser.add_argument("--experiment", default=None,
+                        help="Optional experiment basename to select matching CSVs in each folder")
     args = parser.parse_args()
+    # If an experiment name is provided and output wasn't manually set, make per-experiment output name
+    if args.experiment:
+        # sanitize experiment for filename use
+        exp_safe = args.experiment.replace('/', '_')
+        if args.output == "results_1G/merged_final.csv":
+            args.output = os.path.join("results_1G", f"merged_final_{exp_safe}.csv")
 
     # 1) Zipping dei primi 7
     first_folders = [
@@ -129,12 +148,13 @@ def main():
         args.name1, args.name2, args.name3,
         args.name4, args.name5, args.name6, args.name7
     ]
-    df_first = zip_first_seven(first_folders, first_names)
+    df_first = zip_first_seven(first_folders, first_names, experiment=args.experiment)
 
     # 2) Zipping degli ultimi 2 -> timestamp, seq_num, action
     df_second = zip_last_two(
         args.folder8, args.name8,
-        args.folder9, args.name9
+        args.folder9, args.name9,
+        experiment=args.experiment
     )
 
     # 3) Se necessario, allineo il nome seq_num

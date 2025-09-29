@@ -13,12 +13,13 @@ SIMULATION_TIME=$1
 do_extract () {
     python3 ./extractor_shell_creator.py $1
     pushd ./results/
-    bash ../../../../extractor.sh
+    bash ../extractor.sh
     popd
     sleep 5
 }
-
 rm -rf results
+mkdir -p results
+mkdir -p results/dctcp_ecmp
 
 # create the directory to save extracted_results
 bash dir_creator.sh

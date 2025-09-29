@@ -343,20 +343,19 @@ def enrich_packets_with_flows(input_file, results_dir, output_file, log_file=Non
         available_columns.extend(remaining_columns)
         
         df_final = df_enriched[available_columns]
-        
+
         # Sort by timestamp for chronological order
         df_final = df_final.sort_values('timestamp').reset_index(drop=True)
-        
+
         log(f"Final dataset: {len(df_final)} packets across {df_final['RequesterID'].nunique()} flows")
-        log(f"Deflection statistics: {df_final['action'].sum()} deflections out of {len(df_final)} packets ({df_final['action'].mean()*100:.1f}% deflection rate)")
-        
+
         # Save the enriched dataset
         df_final.to_csv(output_file, index=False)
         log(f"Saved enriched packet-level dataset to {output_file}")
-        
+
         if log_file:
             log_f.close()
-        
+
         return True
         
     except Exception as e:

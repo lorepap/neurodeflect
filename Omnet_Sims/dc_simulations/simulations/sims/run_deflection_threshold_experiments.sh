@@ -113,35 +113,41 @@ extracted_dir="extracted_results"
 for threshold in "${thresholds[@]}"; do
     echo "Processing threshold ${threshold} for CSV organization..."
     
+    # Stage extracted CSVs under a single common root where each category folder
+    # contains CSVs for all thresholds (no per-threshold subfolders).
+    root_out_dir="results_1G_deflection_thresholds"
+    mkdir -p "${root_out_dir}"
+
     if [ "$extracted_dir" = "extracted_results" ]; then
         for c in "${cats[@]}"; do
-            mkdir -p "results_1G_thr_${threshold}/${c}"
-            # copy only matching CSVs for this threshold - prefer manually extracted files
+            mkdir -p "${root_out_dir}/${c}"
             copied_files=0
-            
-            # Fixed syntax error: missing 'if' and proper condition structure
             if compgen -G "${extracted_dir}/${c}/*threshold_${threshold}*.csv" > /dev/null 2>&1; then
-                cp ${extracted_dir}/${c}/*threshold_${threshold}*.csv "results_1G_thr_${threshold}/${c}/"
+                cp ${extracted_dir}/${c}/*threshold_${threshold}*.csv "${root_out_dir}/${c}/"
                 copied_files=1
             fi
-            
             if [ $copied_files -eq 0 ]; then
                 echo "⚠ No files found for category $c and threshold $threshold"
             fi
         done
     else
-        # Already per-threshold structured; copy the whole directory
-        cp -r "$extracted_dir" "results_1G_thr_${threshold}"
+        # If extracted_dir already organized (e.g., per-category), copy matching files
+        for c in "${cats[@]}"; do
+            mkdir -p "${root_out_dir}/${c}"
+            # Copy any files that include the threshold tag in their filename
+            if compgen -G "${extracted_dir}/${c}/*threshold_${threshold}*.csv" > /dev/null 2>&1; then
+                cp ${extracted_dir}/${c}/*threshold_${threshold}*.csv "${root_out_dir}/${c}/" || true
+            fi
+        done
     fi
 
-    # Sanity: ensure we have CSVs
-    csv_count=$(find "results_1G_thr_${threshold}" -name "*.csv" -type f 2>/dev/null | wc -l)
+    # Sanity: ensure we have CSVs for this threshold
+    csv_count=$(find "${root_out_dir}" -name "*threshold_${threshold}*.csv" -type f 2>/dev/null | wc -l)
     if [ "$csv_count" -eq 0 ]; then
         echo "✗ No CSV files found after preparation for threshold ${threshold}"
-        # Changed 'return 1' to 'continue' since we're in a loop, not a function
         continue
     fi
-    echo "✓ Staged $csv_count CSV files into results_1G_thr_${threshold}/"
+    echo "✓ Staged $csv_count CSV files for threshold ${threshold} into ${root_out_dir}/ (category subfolders)"
 done
 
 echo "\n\nAll done! Extracted results are in results_1G_thr_<threshold>/ directories."

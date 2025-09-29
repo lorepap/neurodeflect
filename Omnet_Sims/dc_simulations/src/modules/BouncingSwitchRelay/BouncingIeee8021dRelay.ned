@@ -79,6 +79,12 @@ simple BouncingIeee8021dRelay like IMacRelayUnit
 
         bool hasStp;
         bool learn_mac_addresses;
+        // Enable uniform-random deflection (per-decision Bernoulli flips)
+        bool bounce_uniform_random = default(false);
+        // Base seed used by per-switch RNG: actual seed = uniform_random_seed_base + switchIndex + repetition
+        int uniform_random_seed_base = default(0);
+        // Probability of deflection when uniform-random mode is enabled
+        double uniform_random_deflect_prob = default(0.05);
 
     gates:
         input ifIn;

@@ -38,6 +38,7 @@
 #include <torch/torch.h>
 #include <torch/script.h>
 #include <vector>
+#include <random>
 
 using namespace inet;
 
@@ -114,6 +115,14 @@ class BouncingIeee8021dRelay : public LayeredProtocolBase
     int naive_deflection_idx;   // This indicates the index (ranging from 0 - number of neighboring switches) for packet deflection
     //DIBS
     bool bounce_randomly, filter_out_full_ports, approximate_random_deflection;
+  // UNIFORM RANDOM (50% coin-flip) deflection mode: choose a neighbor uniformly at random
+  // ignoring queue fullness and with a 50% probability of actually deflecting.
+  bool bounce_uniform_random;
+  // Per-switch RNG for independent randomness
+  std::mt19937 rng;
+  unsigned int uniform_random_seed_base = 0;
+  // Probability to deflect in uniform-random mode (per-decision Bernoulli p)
+  double uniform_random_deflect_prob = 0.05;
     //Vertigo
     bool bounce_on_same_path;
     //V2
@@ -263,6 +272,7 @@ class BouncingIeee8021dRelay : public LayeredProtocolBase
 
     InterfaceEntry* find_interface_to_bounce_naively();
     InterfaceEntry* find_interface_to_bounce_randomly(Packet *packet);
+  InterfaceEntry* find_interface_to_bounce_uniform_random(Packet *packet);
     InterfaceEntry* find_interface_to_bounce_on_the_same_path(Packet *packet, InterfaceEntry *original_output_if);
     InterfaceEntry* find_interface_to_fw_randomly_power_of_n(Packet *packet, bool consider_servers);
     void find_interface_to_bounce_randomly_v2(Packet *packet, bool consider_servers, InterfaceEntry *ie2);
