@@ -1134,8 +1134,15 @@ bool AugmentedEtherMac::is_queue_over_v2_threshold(b packet_length, std::string 
             }
         }
         return queue->is_over_v2_threshold_full(packet_length, packet, on_the_way_packet_num, on_the_way_packet_length);
+    } else if (use_v2_pifo) {
+        if (use_bolt_queue) {
+            auto *queue = check_and_cast<V2PIFOBoltQueue *>(getModuleByPath(queue_path.c_str()));
+            return queue->is_over_v2_threshold_full(packet_length, packet, on_the_way_packet_num, on_the_way_packet_length);
+        }
+        auto *queue = check_and_cast<V2PIFO *>(getModuleByPath(queue_path.c_str()));
+        return queue->is_over_v2_threshold_full(packet_length, packet, on_the_way_packet_num, on_the_way_packet_length);
     }
-    throw cRuntimeError("Is not using queues with v2 threshold");
+    return false;
 }
 
 bool AugmentedEtherMac::is_packet_tag_larger_than_last_packet(std::string queue_path, Packet* packet)
@@ -1162,8 +1169,14 @@ bool AugmentedEtherMac::is_packet_tag_larger_than_last_packet(std::string queue_
             }
         }
         return queue->is_packet_tag_larger_than_last_packet(packet);
+    } else if (use_v2_pifo) {
+        if (use_bolt_queue) {
+            auto *queue = check_and_cast<V2PIFOBoltQueue *>(getModuleByPath(queue_path.c_str()));
+            return queue->is_packet_tag_larger_than_last_packet(packet);
+        }
+        return false;
     }
-    throw cRuntimeError("Is not using queues with v2 threshold");
+    return false;
 }
 
 long AugmentedEtherMac::get_queue_occupancy(std::string queue_path)

@@ -1,4 +1,14 @@
-rm -rf logs figs extracted_results
+KEEP_LOGS=0
+if [ "$1" = "--keep-logs" ]; then
+    KEEP_LOGS=1
+    shift
+fi
+
+if [ $KEEP_LOGS -eq 0 ]; then
+    rm -rf logs
+fi
+rm -rf figs
+rm -rf extracted_results
 
 mkdir -p logs
 mkdir -p figs

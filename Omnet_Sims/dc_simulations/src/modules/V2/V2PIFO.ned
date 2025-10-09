@@ -43,6 +43,9 @@ simple V2PIFO extends PacketQueue
         int bolt_CCThresh_max_selective_reaction @unit(b) = default(-1b);
         int sel_reaction_quantile_wind_size = default(-1);
         int sel_reaction_sample_count = default(-1);
+
+        // multiplier applied to buffer capacity to derive the deflection threshold
+        double buffer_mult = default(-1);
         
         // periodic qlen update
         bool update_qlen_periodically = default(false);

@@ -39,7 +39,7 @@ simple V2PIFOPrioQueue extends PacketQueue
         int queue_num = default(-1);
         int dctcp_thresh = default(-1);
         string where_to_mark_packets = default("enqueue");		// enqueue or dequeue
-        int deflection_threshold = default(-1);	// this should be in bit if you're using dataCapacity
+        int deflection_threshold @unit(B) = default(-1B);    // deflection threshold in bytes
         string priority_mapping_scheme = default("");
         
         // AIFO

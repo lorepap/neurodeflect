@@ -47,6 +47,10 @@ void V2PIFOPrioQueue::initialize(int stage) {
         throw cRuntimeError("num_queues <= 0");
 
     deflection_threshold = par("deflection_threshold");
+    // convert integer threshold (specified in NED/INI, historically in bytes) to typed bits
+    // store as deflection_threshold_b for comparisons against getTotalLength() which is typed 'b'
+    deflection_threshold_b = b((long long)deflection_threshold * 8LL);
+    // mtu not used in this priority queue variant; do not read it to avoid MTU-based conversions
 
     std::string where_to_mark_packets = par("where_to_mark_packets");
     if (where_to_mark_packets.compare("enqueue") == 0) {
@@ -594,18 +598,28 @@ bool V2PIFOPrioQueue::is_over_v2_threshold_full_sppifo(b packet_length, Packet* 
         return false;
     }
     EV << "V2PIFOPrioQueue::is_over_v2_threshold_full" << endl;
-    bool is_over_deflection_threshold = (getMaxNumPackets() != -1 && getNumPackets() + on_the_way_packet_num >= deflection_threshold) ||
-            (getMaxTotalLength() != b(-1) && (getTotalLength() + on_the_way_packet_length + packet_length).get() >= deflection_threshold);
+    bool is_over_deflection_threshold = false;
+    if (getMaxNumPackets() != -1) {
+        // packet-count based capacity: treat deflection_threshold as packet-count directly
+        if (packetCapacity != -1 || per_queue_packetCapacity != -1 || getMaxNumPackets() != -1) {
+            long thr_packets = deflection_threshold;
+            is_over_deflection_threshold = (getNumPackets() + on_the_way_packet_num) >= thr_packets;
+        }
+    }
+    if (!is_over_deflection_threshold && getMaxTotalLength() != b(-1)) {
+        // dataCapacity mode: compare typed bit quantities
+        b queue_len_b = getTotalLength() + on_the_way_packet_length + packet_length;
+        is_over_deflection_threshold = queue_len_b >= deflection_threshold_b;
+        EV << "DEBUG: queue_len_b = " << queue_len_b << ", deflection_threshold_b = " << deflection_threshold_b << " (" << deflection_threshold << " bytes)" << endl;
+    }
 
     if (getMaxTotalLength() != b(-1)) {
-        EV << "DEBUG: (getTotalLength() + on_the_way_packet_length + packet_length).get() = "
-           << (getTotalLength() + on_the_way_packet_length + packet_length).get()
-           << ", deflection_threshold = " << deflection_threshold << endl;
+        EV << "DEBUG: queue total length = " << getTotalLength() << ", packet length = " << packet_length << ", on_the_way = " << on_the_way_packet_length << ", deflection_threshold_b = " << deflection_threshold_b << " (" << deflection_threshold << " bytes)" << endl;
     }
     if (getMaxNumPackets() != -1)
-        EV << "The deflection threshold is " << deflection_threshold << ", There are currently " << getNumPackets() << " packets inside the queue and " << on_the_way_packet_num << " packets on the way. is_over_deflection_threshold? " << is_over_deflection_threshold << endl;
+        EV << "The deflection threshold (bytes) is " << deflection_threshold << ", There are currently " << getNumPackets() << " packets inside the queue and " << on_the_way_packet_num << " packets on the way. is_over_deflection_threshold? " << is_over_deflection_threshold << endl;
     else if (getMaxTotalLength() != b(-1))
-        EV << "The deflection threshold is " << deflection_threshold << ", Queue length is " << getTotalLength() << " and packet length is " << packet_length << " and " << on_the_way_packet_length << " bytes on the way. is_over_deflection_threshold? " << is_over_deflection_threshold << endl;
+        EV << "The deflection threshold (bytes) is " << deflection_threshold << ", Queue length is " << getTotalLength() << " and packet length is " << packet_length << " and " << on_the_way_packet_length << " bytes on the way. is_over_deflection_threshold? " << is_over_deflection_threshold << endl;
 
 //    if (is_over_deflection_threshold)
 //        std::cout << "t = " << simTime() << ". The deflection threshold is " << deflection_threshold << ", Queue length is " << getTotalLength() << " and packet length is " << packet_length << " and " << on_the_way_packet_length << " bytes on the way. is_over_deflection_threshold? " << is_over_deflection_threshold << endl;
@@ -756,6 +770,7 @@ bool V2PIFOPrioQueue::isFullPrioQueue(int queue_idx, int packet_len, Packet* pac
 
     if (is_queue_full(b(packet_len), 0, b(0))) {
 //        std::cout << "t = " << simTime() << ". Queue is overall full!" << endl;
+        EV << "Queue is overall full!" << endl;
         return true;
     }
     bool is_prio_queue_full;

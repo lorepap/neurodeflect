@@ -272,3 +272,6 @@ echo "✓ Archived staged results to processed_${OUTPUT_NAME}/"
 
 echo "All done. Per-experiment datasets: ${final_datasets[*]}"
 exit 0
+
+# Example: to create datasets for probabilistic runs produced by run_1G_probabilistic.sh
+# bash run_dataset_creation.sh results_1G_probabilistic probabilistic

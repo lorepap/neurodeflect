@@ -121,7 +121,11 @@ class INET_API V2PIFO : public PacketQueue
     virtual long get_queue_capacity() override;
     // incremental deployment: public
     int deployed_with_deflection = -1;
-
+    // deflection threshold API used by MAC/Relay
+    virtual bool is_over_v2_threshold_full(b packet_length, Packet* packet, long on_the_way_packet_num = 0, b on_the_way_packet_length = b(0));
+    double buffer_mult = -1;
+    b deflection_threshold_b = b(-1);
+    long deflection_threshold_packets = -1;
 
 };
 

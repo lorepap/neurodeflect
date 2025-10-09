@@ -74,6 +74,17 @@ for file_name in onlyfiles:
         threshold_part = ''
         if 'threshold_' in full_name:
             threshold_part = '_' + full_name.split('threshold_')[-1]
+
+        # Extract beta, theta, eps if present
+        if 'beta_' in full_name:
+            beta_value = full_name.split('beta_')[1].split('_')[0]
+            threshold_part += f'_beta{beta_value}'
+        if 'theta_' in full_name:
+            theta_value = full_name.split('theta_')[1].split('_')[0]
+            threshold_part += f'_theta{theta_value}'
+        if 'eps_' in full_name:
+            eps_value = full_name.split('eps_')[1].split('_')[0]
+            threshold_part += f'_eps{eps_value}'
         
         # Create shorter but meaningful filename
         short_name = f"sim_{name_hash}{threshold_part}"

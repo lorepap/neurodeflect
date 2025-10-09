@@ -28,7 +28,7 @@ bash dir_creator.sh
 # DCTCP RUNS
 echo "\n\n-------------------------------------------"
 echo "Running DCTCP_ECMP"
-opp_runall -j50 ../../src/dc_simulations -m -u Cmdenv -c DCTCP_ECMP -n ..:../../src:../../../inet/src:../../../inet/examples:../../../inet/tutorials:../../../inet/showcases --image-path=../../../inet/images -l ../../../inet/src/INET omnetpp_1G.ini --sim-time-limit=$SIMULATION_TIME
+opp_runall -j50 ../../src/dc_simulations -m -u Cmdenv -c DCTCP_ECMP -n ..:../../src:../../../inet/src:../../../inet/examples:../../../inet/tutorials:../../../inet/showcases --image-path=../../../inet/images -l ../../../inet/src/INET omnetpp_1G.ini --sim-time-limit=$SIMULATION_TIME > opp_runall.log 2>&1
 do_extract dctcp_ecmp
 mkdir logs/dctcp_ecmp_1G
 cp results/*.out logs/dctcp_ecmp_1G/

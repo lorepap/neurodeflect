@@ -18,7 +18,7 @@ bash dir_creator.sh
 # TCP RUNS
 echo "\n\n-------------------------------------------"
 echo "Running TCP_ECMP"
-opp_runall -j50 ../../src/dc_simulations -m -u Cmdenv -c TCP_ECMP -n ..:../../src:../../../inet/src:../../../inet/examples:../../../inet/tutorials:../../../inet/showcases --image-path=../../../inet/images -l ../../../inet/src/INET omnetpp_50_bg_dqps.ini
+opp_runall -j50 ../../src/dc_simulations -m -u Cmdenv -c TCP_ECMP -n ..:../../src:../../../inet/src:../../../inet/examples:../../../inet/tutorials:../../../inet/showcases --image-path=../../../inet/images -l ../../../inet/src/INET omnetpp_50_bg_dqps.ini > opp_runall.log 2>&1
 do_extract tcp_ecmp
 mkdir logs/tcp_ecmp_50_bg_dqps
 cp results/*.out logs/tcp_ecmp_50_bg_dqps/

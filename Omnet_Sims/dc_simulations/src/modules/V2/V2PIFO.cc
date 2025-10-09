@@ -8,6 +8,7 @@
 #include "inet/queueing/function/PacketDropperFunction.h"
 #include "./V2PIFO.h"
 #include <sqlite3.h>
+#include <cmath>
 #include "inet/linklayer/common/InterfaceTag_m.h"
 
 using namespace inet;
@@ -224,9 +225,9 @@ void V2PIFO::initialize(int stage) {
         if (buffer_idx == 0 && getParentModule()->getParentModule()
                 ->getIndex() == 0) {
             if (using_buffer)
-                std::cout << "Buffer is loaded!" << endl;
+                EV_INFO << "Buffer is loaded!" << endl;
             else
-                std::cout << "No buffer is loaded!" << endl;
+                EV_INFO << "No buffer is loaded!" << endl;
         }
         update_qlen_periodically = par("update_qlen_periodically");
         if (using_buffer && update_qlen_periodically)
@@ -240,7 +241,76 @@ void V2PIFO::initialize(int stage) {
             periodic_qlen_num_packets = 0;
             periodic_qlen_bytes = b(0);
         }
+        buffer_mult = par("buffer_mult");
+        deflection_threshold_b = b(-1);
+        deflection_threshold_packets = -1;
+
+        if (buffer_mult > 0) {
+            if (getMaxTotalLength() != b(-1)) {
+                long long capacity_bits = getMaxTotalLength().get();
+                long long threshold_bits = static_cast<long long>(std::ceil(buffer_mult * capacity_bits));
+                if (threshold_bits < 0)
+                    threshold_bits = 0;
+                deflection_threshold_b = b(threshold_bits);
+                std::cout << getFullPath() << ": deflection threshold derived from buffer_mult=" << buffer_mult
+                          << " is " << (threshold_bits / 8) << " B (" << threshold_bits << " bits)" << std::endl;
+            }
+            else if (getMaxNumPackets() != -1) {
+                long long capacity_packets = getMaxNumPackets();
+                long long threshold_packets = static_cast<long long>(std::ceil(buffer_mult * capacity_packets));
+                if (threshold_packets < 0)
+                    threshold_packets = 0;
+                deflection_threshold_packets = threshold_packets;
+                std::cout << getFullPath() << ": deflection threshold derived from buffer_mult=" << buffer_mult
+                          << " is " << threshold_packets << " packets" << std::endl;
+            }
+        }
     }
+}
+
+bool V2PIFO::is_over_v2_threshold_full(b packet_length, Packet* packet, long on_the_way_packet_num, b on_the_way_packet_length) {
+    if (buffer_mult <= 0) {
+        return false;
+    }
+    EV << "V2PIFO::is_over_v2_threshold_full" << endl;
+    bool is_over_deflection_threshold = false;
+
+    if (getMaxTotalLength() != b(-1)) {
+        if (deflection_threshold_b == b(-1)) {
+            long long capacity_bits = getMaxTotalLength().get();
+            long long threshold_bits = static_cast<long long>(std::ceil(buffer_mult * capacity_bits));
+            if (threshold_bits < 0)
+                threshold_bits = 0;
+            deflection_threshold_b = b(threshold_bits);
+        }
+        b queue_len_b = getTotalLength() + on_the_way_packet_length + packet_length;
+        is_over_deflection_threshold = queue_len_b >= deflection_threshold_b;
+
+        EV << "DEBUG: queue_len_b = " << queue_len_b << " (" << queue_len_b.get() << " bits, " << (queue_len_b.get()/8) << " B)"
+           << ", deflection_threshold_b = " << deflection_threshold_b << " (" << deflection_threshold_b.get() << " bits, " << (deflection_threshold_b.get()/8) << " B)" << endl;
+    }
+    else if (getMaxNumPackets() != -1) {
+        long long thr_packets = deflection_threshold_packets;
+        if (thr_packets < 0) {
+            long long capacity_packets = getMaxNumPackets();
+            thr_packets = static_cast<long long>(std::ceil(buffer_mult * capacity_packets));
+            if (thr_packets < 0)
+                thr_packets = 0;
+            deflection_threshold_packets = thr_packets;
+        }
+
+        is_over_deflection_threshold = (getNumPackets() + on_the_way_packet_num) >= thr_packets;
+
+        EV << "DEBUG: queue_num_packets = " << (getNumPackets() + on_the_way_packet_num)
+           << ", deflection_threshold_packets = " << thr_packets << endl;
+    }
+
+    if (getMaxNumPackets() != -1)
+        EV << "The deflection threshold (packets) is " << deflection_threshold_packets << ", There are currently " << getNumPackets() << " packets inside the queue and " << on_the_way_packet_num << " packets on the way. is_over_deflection_threshold? " << is_over_deflection_threshold << endl;
+    else if (getMaxTotalLength() != b(-1))
+        EV << "The deflection threshold (bytes) is " << (deflection_threshold_b.get()/8) << ", Queue length is " << getTotalLength() << " and packet length is " << packet_length << " and " << on_the_way_packet_length << " bytes on the way. is_over_deflection_threshold? " << is_over_deflection_threshold << endl;
+
+    return is_over_deflection_threshold;
 }
 
 void V2PIFO::sel_reaction_update_quantile_list(Packet* packet) {

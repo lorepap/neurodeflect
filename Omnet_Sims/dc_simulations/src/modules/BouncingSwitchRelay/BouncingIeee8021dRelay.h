@@ -144,6 +144,12 @@ class BouncingIeee8021dRelay : public LayeredProtocolBase
     bool bounce_probabilistically;
     double utilization_thresh;
     double bounce_probability_lambda;
+  // Smooth probabilistic deflection (piecewise-linear or logistic alternative)
+  bool bounce_probabilistic_smooth;
+  // theta: midpoint queue utilization where p_deflect = 0.5
+  double deflect_prob_theta;
+  // beta: slope half-width (controls linear ramp width around theta)
+  double deflect_prob_beta;
     // selective network feedback
     bool apply_selective_net_reaction;
     int selective_net_reaction_type;

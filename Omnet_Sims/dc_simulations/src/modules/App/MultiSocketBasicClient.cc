@@ -279,7 +279,7 @@ void MultiSocketBasicClient::sendRequest(long socket_id)
     if (requestLength < 1)
         throw cRuntimeError("request_length < 1, are you sure?");
     if (reply_length <= 0) {
-        std::cout << "reploy_length is " << reply_length << endl;
+        EV_ERROR << "reply_length is " << reply_length << endl;
         throw cRuntimeError("reply_length <= 0, are you sure?");
     }
 
@@ -294,7 +294,8 @@ void MultiSocketBasicClient::sendRequest(long socket_id)
     payload->setExpectedReplyLength(B(reply_length));
     payload->setServerClose(false);
     payload->addTag<CreationTimeTag>()->setCreationTime(simTime());
-    payload->setRequesterID(get_flow_id());
+    unsigned long flowId = get_flow_id();
+    payload->setRequesterID(flowId);
     payload->setRequested_time(simTime());
     payload->setIs_micro_burst_flow(is_bursty);
     packet->insertAtBack(payload);
@@ -302,7 +303,7 @@ void MultiSocketBasicClient::sendRequest(long socket_id)
     EV << "sending request with " << requestLength << " bytes, expected reply length " << reply_length << " bytes\n";
     EV << "SEPEHR: sending request with request ID: " << payload->getRequesterID() << endl;
     emit(requestSentSignal, payload->getRequesterID());
-    emit(flowIdSignal, get_flow_id());
+    emit(flowIdSignal, flowId);
     emit(replyLengthsSignal, reply_length);
     if (is_bursty)
         emit(flowEndedQueryIDSignal, payload->getQuery_id());

@@ -4,9 +4,9 @@ set -euo pipefail
 # Resolve script directory to use absolute paths
 BASE_DIR=$(cd "$(dirname "$0")" && pwd)
 
-# make inet
-coreNum=$(grep -c '^processor' /proc/cpuinfo || echo 1)
-echo "$coreNum hyper-threads used for building."
+# Use all available processors for parallel make
+coreNum=$(nproc 2>/dev/null || grep -c '^processor' /proc/cpuinfo || echo 1)
+echo "$coreNum processors used for building."
 
 echo -e "-------------------------- make clean -C $BASE_DIR/inet --------------------------"
 make clean -C "$BASE_DIR/inet"

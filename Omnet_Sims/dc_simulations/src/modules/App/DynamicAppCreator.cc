@@ -351,14 +351,14 @@ void DynamicAppCreator::count_submodules() {
         {
             num_submodules++;
         }
-        std::cout << "info for server[" << parent_index << "].app[" << app_index << "]" << endl;
-        std::cout << "SEPEHR: Number of submodules is " << num_submodules << endl;
-        auto dispatcher = check_and_cast<cSimpleModule *>(gate("socketIn")->getPathStartGate()->getOwnerModule());
-        std::cout << "SEPEHR: Dispatcher gate sizes are: in -> " << dispatcher->gateSize("in")
-                << ", out -> " << dispatcher->gateSize("out") << endl;
-        std::cout << "SEPEHR: Sizes are: flow_sizes -> " << flow_sizes.size() << ", inter_arrival_times -> " << inter_arrival_times.size() <<
-                ", background_server_idx -> " << background_server_idx.size() << ", burst_server_idx -> " << bursty_server_idx.size() << endl;
-        std::cout << "***********************************************************" << endl;
+    EV_INFO << "info for server[" << parent_index << "].app[" << app_index << "]" << endl;
+    EV_INFO << "SEPEHR: Number of submodules is " << num_submodules << endl;
+    auto dispatcher = check_and_cast<cSimpleModule *>(gate("socketIn")->getPathStartGate()->getOwnerModule());
+    EV_INFO << "SEPEHR: Dispatcher gate sizes are: in -> " << dispatcher->gateSize("in")
+        << ", out -> " << dispatcher->gateSize("out") << endl;
+    EV_INFO << "SEPEHR: Sizes are: flow_sizes -> " << flow_sizes.size() << ", inter_arrival_times -> " << inter_arrival_times.size() <<
+        ", background_server_idx -> " << background_server_idx.size() << ", burst_server_idx -> " << bursty_server_idx.size() << endl;
+    EV_INFO << "***********************************************************" << endl;
 
     }
 }

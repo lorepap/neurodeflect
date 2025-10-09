@@ -62,7 +62,10 @@ class INET_API V2PIFOPrioQueue : public PacketQueue
     unsigned int num_all_packets = 0;
     unsigned int num_mice_packets = 0;
 
-    int deflection_threshold;
+  // legacy integer threshold (used for packet-count mode)
+  int deflection_threshold;
+  // typed data threshold using INET 'b' unit (used for byte/bit comparisons)
+  b deflection_threshold_b = b(-1);
     unsigned long priority_of_last_packet_inserted_in_queue = 0;
 
     int num_queues;
@@ -70,6 +73,7 @@ class INET_API V2PIFOPrioQueue : public PacketQueue
     int priority_mapping_scheme;
     int per_queue_packetCapacity = -1;
     b per_queue_dataCapacity = b(-1);
+  // mtu removed for priority queue variant
 
     // SP-PIFO
     std::list<unsigned long> sppifo_queue_bounds;
