@@ -1,5 +1,7 @@
 #!/bin/bash
 
+# TODO: outdated. To be replaced with sequential execution of run_1G_experiments.sh (running all deflection policies) and run_dataset_creation [policy results folder] for each policy 
+
 # Orchestration script to run all data-collection policies and create datasets.
 # Usage: ./run_all_data_collection.sh <simulation_time>
 # Example: ./run_all_data_collection.sh 10s

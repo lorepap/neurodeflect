@@ -33,6 +33,7 @@
 #include <sqlite3.h>
 #include <sstream>
 #include <vector>
+#include <algorithm>
 
 using namespace inet;
 
@@ -230,6 +231,16 @@ void BouncingIeee8021dRelay::initialize(int stage)
                 throw cRuntimeError("sel_reaction_alpha < 0 || sel_reaction_alpha > 1");
         }
 
+        use_token_bucket_gate = getAncestorPar("use_token_bucket_gate");
+        token_bucket_rate = getAncestorPar("token_bucket_rate");
+        token_bucket_burst = getAncestorPar("token_bucket_burst");
+        if (use_token_bucket_gate) {
+            if (token_bucket_rate <= 0)
+                throw cRuntimeError("use_token_bucket_gate set but token_bucket_rate <= 0");
+            if (token_bucket_burst <= 0)
+                throw cRuntimeError("use_token_bucket_gate set but token_bucket_burst <= 0");
+        }
+
         // RL-based deflection policy
         bounce_with_rl_policy = getAncestorPar("bounce_with_rl_policy");
         if (bounce_with_rl_policy) {
@@ -293,7 +304,7 @@ void BouncingIeee8021dRelay::initialize(int stage)
         } else {
             // Include bounce_uniform_random so setting that flag alone can enable deflection
             can_deflect = bounce_naively || bounce_randomly || bounce_on_same_path || bounce_randomly_v2 ||
-            bounce_uniform_random || bounce_probabilistically || bounce_with_rl_policy;
+            bounce_uniform_random || bounce_probabilistically || bounce_probabilistic_smooth || bounce_with_rl_policy;
         }
 
         if (bounce_naively && naive_deflection_idx < 0)
@@ -389,6 +400,9 @@ void BouncingIeee8021dRelay::initialize(int stage)
                     "deflect_prob_beta: " << deflect_prob_beta << endl <<
                     "bounce_with_rl_policy: " << bounce_with_rl_policy << endl <<
                     "bounce_uniform_random: " << bounce_uniform_random << endl <<
+                    "use_token_bucket_gate: " << use_token_bucket_gate << endl <<
+                    "token_bucket_rate: " << token_bucket_rate << endl <<
+                    "token_bucket_burst: " << token_bucket_burst << endl <<
                     "v2pifo_queue_type_str: " << v2pifo_queue_type_str << endl <<
                     "use_bolt_queue: " << use_bolt_queue << endl <<
                     "use_bolt_with_vertigo_queue: " << use_bolt_with_vertigo_queue << endl <<
@@ -400,6 +414,9 @@ void BouncingIeee8021dRelay::initialize(int stage)
 
         cModule *switchModule = getParentModule();
         int numPorts = ifTable->getNumInterfaces();
+
+        initialize_token_buckets(); // initialize token buckets if used
+
         macList.reserve(numPorts);
         for (int i = 0; i < numPorts; ++i) {
             // prendi il sottomodulo eth[i] (di tipo EthernetInterface)
@@ -612,6 +629,116 @@ void BouncingIeee8021dRelay::broadcast(Packet *packet, int arrivalInterfaceId)
         }
     }
     delete packet;
+}
+
+void BouncingIeee8021dRelay::initialize_token_buckets()
+{
+    token_buckets.clear();
+    if (!use_token_bucket_gate)
+        return;
+    if (!ifTable)
+        return;
+
+    int portCount = ifTable->getNumInterfaces();
+    token_buckets.resize(portCount);
+    omnetpp::simtime_t now = simTime();
+    for (auto &bucket : token_buckets) {
+        bucket.rate = token_bucket_rate;
+        bucket.burst = token_bucket_burst;
+        bucket.tokens = token_bucket_burst;
+        bucket.lastRefill = now;
+    }
+}
+
+int BouncingIeee8021dRelay::resolve_token_bucket_index(InterfaceEntry *port) const
+{
+    if (!use_token_bucket_gate || port == nullptr)
+        return -1;
+
+    int index = port->getIndex();
+    if (index < 0 || index >= static_cast<int>(token_buckets.size()))
+        return -1;
+
+    return index;
+}
+
+void BouncingIeee8021dRelay::refill_token_bucket(int bucket_index, omnetpp::simtime_t now)
+{
+    if (!use_token_bucket_gate)
+        return;
+    if (bucket_index < 0 || bucket_index >= static_cast<int>(token_buckets.size()))
+        return;
+
+    auto &bucket = token_buckets[bucket_index];
+    if (bucket.rate <= 0)
+        return;
+    if (now <= bucket.lastRefill)
+        return;
+
+    omnetpp::simtime_t elapsed = now - bucket.lastRefill;
+    double added = bucket.rate * elapsed.dbl();
+    bucket.tokens = std::min(bucket.burst, bucket.tokens + added);
+    bucket.lastRefill = now;
+}
+
+bool BouncingIeee8021dRelay::try_consume_token(int bucket_index, omnetpp::simtime_t now)
+{
+    if (!use_token_bucket_gate)
+        return true;
+    if (bucket_index < 0 || bucket_index >= static_cast<int>(token_buckets.size()))
+        return true;
+
+    auto &bucket = token_buckets[bucket_index];
+    if (bucket.rate <= 0 || bucket.burst <= 0)
+        return true;
+
+    refill_token_bucket(bucket_index, now);
+
+    if (bucket.tokens >= 1.0) {
+        bucket.tokens -= 1.0;
+        return true;
+    }
+
+    return false;
+}
+
+bool BouncingIeee8021dRelay::acquire_token_for_deflection(InterfaceEntry *egress, InterfaceEntry *original, const char *context)
+{
+    if (!use_token_bucket_gate)
+        return true;
+    int bucket_index = resolve_token_bucket_index(egress);
+    std::cout << "SEPEHR: acquire_token_for_deflection called for egress=" << egress->getIndex() << endl;
+    std::cout << "SEPEHR: bucket_index=" << bucket_index << endl;
+    if (bucket_index < 0)
+        return true;
+
+    // debug
+    std::cout << "acquire_token_for_deflection called"
+            << " switch=" << getParentModule()->getFullName()
+            << " egress=" << egress->getIndex()
+            << " original=" << (original ? original->getIndex() : -1)
+            << " context=" << (context ? context : "")
+            << " tokens_left=" << token_buckets[bucket_index].tokens
+            << " rate=" << token_buckets[bucket_index].rate
+            << " burst=" << token_buckets[bucket_index].burst
+            << endl;
+
+    omnetpp::simtime_t now = simTime();
+    if (try_consume_token(bucket_index, now))
+        return true;
+
+    // debug 
+     std::cout << "TOKEN_BUCKET_GATE_BLOCK"
+            << " switch=" << getParentModule()->getFullName()
+            << " egress=" << egress->getIndex()
+            << " original=" << (original ? original->getIndex() : -1)
+            << " context=" << (context ? context : "")
+            << " tokens_left=" << token_buckets[bucket_index].tokens
+            << " rate=" << token_buckets[bucket_index].rate
+            << " burst=" << token_buckets[bucket_index].burst
+            << endl;
+
+    return false;
 }
 
 namespace {
@@ -1118,102 +1245,122 @@ InterfaceEntry* BouncingIeee8021dRelay::find_a_port_for_packet_towards_source(Pa
 
 InterfaceEntry* BouncingIeee8021dRelay::find_interface_to_bounce_probabilistically(Packet *packet, InterfaceEntry *original_output_if) {
     if (!can_deflect)
-            throw cRuntimeError("find_interface_to_bounce_probabilistically! can deflect is false!");
-    // This is how its done in PABO
-    EV << "BouncingIeee8021dRelay::find_interface_to_bounce_probabilistically called." << endl;
+        throw cRuntimeError("find_interface_to_bounce_probabilistically! can deflect is false!");
+    if (!bounce_probabilistically)
+        throw cRuntimeError("find_interface_to_bounce_probabilistically called when bounce_probabilistically is false");
+
+    // Classic PABO probability calculation
     std::string switch_name = getParentModule()->getFullName();
     InterfaceEntry *ie = nullptr;
     double utilization = get_port_utilization(original_output_if->getIndex(), packet);
-    Packet* packet_dup = packet->dup();
+    Packet *packet_dup = packet->dup();
     auto frame = packet->removeAtFront<EthernetMacHeader>();
     int total_hop_num = frame->getTotalHopNum();
     int bounced_distance = frame->getBouncedDistance();
     int bounced_hop = frame->getBouncedHop();
     int max_bounced_distance = frame->getMaxBouncedDistance();
 
-    if (bounced_distance < 0 || bounced_hop < 0 || bounced_distance < 0 || total_hop_num < 0)
-        throw cRuntimeError("Something is wrong with your way of calculating bouncing variables.");
+    if (bounced_distance < 0 || bounced_hop < 0 || total_hop_num < 0)
+        throw cRuntimeError("Invalid bouncing counters detected while handling probabilistic deflection.");
 
-    EV << "Packet's bounce distance is: " << frame->getBouncedDistance() << endl;
-    // Determine deflection probability
     double probability = 0.0;
-    EV << "bounce_probabilistic_smooth: " << bounce_probabilistic_smooth << endl;
-    if (bounce_probabilistic_smooth) {
-        // piecewise-linear rule around theta with half-width beta
-        double q = utilization; // utilization in [0,1]
-        double theta = deflect_prob_theta;
-        double beta = deflect_prob_beta;
-        EV << "Utilization is: " << utilization << ", theta + beta is: " << theta + beta << ", theta - beta is: " << theta - beta << endl;
-        if (beta <= 0) {
-            // avoid division by zero; fall back to step at theta
-            probability = (q > theta) ? 1.0 : 0.0;
-        } else if (q < theta - beta) {
-            probability = 0.0;
-        } else if (q > theta + beta) {
-            probability = 1.0;
-        } else {
-            probability = (q - (theta - beta)) / (2.0 * beta);
-        }
-    } else {
-        if (utilization > utilization_thresh) {
-            double probability_numerator = std::exp(bounce_probability_lambda * (utilization_thresh - utilization) / (bounced_hop + 1)) - 1;
-            double probability_denuminator = std::exp(bounce_probability_lambda * (utilization_thresh - 1) / (bounced_hop + 1)) - 1;
-            probability = probability_numerator / probability_denuminator;
-            if (probability > 1)
-                throw cRuntimeError("probability > 1? Doesn't make sense.");
-        } else {
-            probability = 0.0;
-        }
+    if (utilization > utilization_thresh) {
+        double numerator = std::exp(bounce_probability_lambda * (utilization_thresh - utilization) / (bounced_hop + 1)) - 1;
+        double denominator = std::exp(bounce_probability_lambda * (utilization_thresh - 1) / (bounced_hop + 1)) - 1;
+        probability = denominator != 0 ? numerator / denominator : 0.0;
+        if (probability > 1)
+            throw cRuntimeError("PABO probability > 1.0 -- configuration error.");
     }
 
     double dice = dblrand();
+    EV << "switch: " << switch_name
+       << " ,port: " << original_output_if->getInterfaceId()
+       << " passing back packet " << packet->str()
+       << "(passBackNum= " << bounced_hop
+       << " ) ,with probability = " << probability
+       << " , dice = " << dice << endl;
 
-    EV << "switch: " << switch_name << " ,port: " << original_output_if->getInterfaceId() <<
-            " passing back packet " << packet->str() << "(passBackNum= " << bounced_hop <<
-            " ) ,with probability = " << probability << " , dice = " << dice << endl;
     bool should_bounce = dice <= probability;
-        if (should_bounce) {
-            // bounce back
-            bounced_hop++;
-            frame->setBouncedHop(bounced_hop);
-            bounced_distance++;
-            frame->setBouncedDistance(bounced_distance);
+    if (should_bounce) {
+        // Update bounce bookkeeping for PABO behaviour
+        bounced_hop++;
+        frame->setBouncedHop(bounced_hop);
+        bounced_distance++;
+        frame->setBouncedDistance(bounced_distance);
 
-            if (max_bounced_distance < bounced_distance) {
-                max_bounced_distance = bounced_distance;
-                frame->setMaxBouncedDistance(max_bounced_distance);
-            }
-
-            total_hop_num++;
-            frame->setTotalHopNum(total_hop_num);
-
-            // Bounce back the packet on the same path
-            int arrivalInterfaceId = packet->getTag<InterfaceInd>()->getInterfaceId();
-            if (arrivalInterfaceId != original_output_if->getInterfaceId())
-                ie = ifTable->getInterfaceById(arrivalInterfaceId);
-            else {
-                ie = find_a_port_for_packet_towards_source(packet_dup);
-            }
-
-            EV << "Bouncing back frame " << frame << " with src address " << frame->getSrc() <<
-                    " at the " << frame->getBouncedDistance() << " hop " << " to port " << ie->getInterfaceId() << endl;
-
-        } else {
-            // Forward the packet normally
-            if(bounced_distance >= 1) {
-                bounced_distance--;
-                frame->setBouncedDistance(bounced_distance);
-            }
-            total_hop_num++;
-            frame->setTotalHopNum(total_hop_num);
-
-            ie = original_output_if;
-            EV << "1) Forwarding the packet towards its original destination." << endl;
+        if (max_bounced_distance < bounced_distance) {
+            max_bounced_distance = bounced_distance;
+            frame->setMaxBouncedDistance(max_bounced_distance);
         }
+
+        total_hop_num++;
+        frame->setTotalHopNum(total_hop_num);
+
+        // Bounce back the packet on the same path (classic PABO behaviour)
+        int arrivalInterfaceId = packet->getTag<InterfaceInd>()->getInterfaceId();
+        if (arrivalInterfaceId != original_output_if->getInterfaceId())
+            ie = ifTable->getInterfaceById(arrivalInterfaceId);
+        else
+            ie = find_a_port_for_packet_towards_source(packet_dup);
+
+        EV << "Bouncing back frame " << frame
+           << " with src address " << frame->getSrc()
+           << " at hop " << frame->getBouncedDistance()
+           << " to port " << (ie ? ie->getInterfaceId() : -1) << endl;
+    }
+    else {
+        if (bounced_distance >= 1) {
+            bounced_distance--;
+            frame->setBouncedDistance(bounced_distance);
+        }
+        total_hop_num++;
+        frame->setTotalHopNum(total_hop_num);
+
+        ie = original_output_if;
+        EV << "Forwarding the packet towards its original destination." << endl;
+    }
+
     packet->insertAtFront(frame);
     delete packet_dup;
     return ie;
+}
 
+bool BouncingIeee8021dRelay::compute_smooth_deflection_decision(Packet *packet, InterfaceEntry *original_output_if, double &probability, double &dice) {
+    if (!can_deflect)
+        throw cRuntimeError("compute_smooth_deflection_decision called while deflection is disabled");
+    if (!bounce_probabilistic_smooth)
+        throw cRuntimeError("compute_smooth_deflection_decision invoked when bounce_probabilistic_smooth is false");
+
+    double utilization = get_port_utilization(original_output_if->getIndex(), packet);
+    double theta = deflect_prob_theta;
+    double beta = deflect_prob_beta;
+    double q = utilization;
+
+    if (beta <= 0) {
+        probability = (q > theta) ? 1.0 : 0.0;
+    } else if (q < theta - beta) {
+        probability = 0.0;
+    } else if (q > theta + beta) {
+        probability = 1.0;
+    } else {
+        probability = (q - (theta - beta)) / (2.0 * beta);
+    }
+
+    if (probability < 0.0)
+        probability = 0.0;
+    else if (probability > 1.0)
+        probability = 1.0;
+    dice = dblrand();
+
+    EV << "Smooth probabilistic deflection decision: switch " << getParentModule()->getFullName()
+       << " port " << original_output_if->getInterfaceId()
+       << " utilization=" << utilization
+       << " theta=" << theta
+       << " beta=" << beta
+       << " probability=" << probability
+       << " dice=" << dice << endl;
+
+    return dice <= probability;
 }
 
 InterfaceEntry* BouncingIeee8021dRelay::find_interface_to_bounce_on_the_same_path(Packet *packet, InterfaceEntry *original_output_if) {
@@ -1547,7 +1694,7 @@ void BouncingIeee8021dRelay::apply_early_deflection(Packet *packet, bool conside
     // bounce the packet
 
     EV << "BouncingIeee8021dRelay::apply_early_deflection called." << endl;
-//    std::cout << simTime() << ": applying early deflection!" << endl;
+    std::cout << simTime() << ": applying early deflection!" << endl;
 
     std::string module_path_string;
     std::string switch_name = getParentModule()->getFullName();
@@ -1559,6 +1706,11 @@ void BouncingIeee8021dRelay::apply_early_deflection(Packet *packet, bool conside
     EV << "Bouncing the ejected packet " << packet->str() << endl;
     b packet_length = b(packet->getBitLength());
     const auto& frame = packet->peekAtFront<EthernetMacHeader>();
+    int ingress_interface_id = -1;
+    if (auto ingress_tag = packet->findTag<InterfaceInd>())
+        ingress_interface_id = ingress_tag->getInterfaceId();
+    else if (frame != nullptr)
+        ingress_interface_id = frame->getOriginal_interface_id();
     long min_queue_occupancy = -1;
     int chosen_source_index = -1;
     std::list<int> chosen_interface_indexes;
@@ -1595,11 +1747,13 @@ void BouncingIeee8021dRelay::apply_early_deflection(Packet *packet, bool conside
         port_idx_connected_to_switch_neioghbors_copy.erase(it);
         if (port_idx_connected_to_switch_neioghbors.size() == port_idx_connected_to_switch_neioghbors_copy.size())
             throw cRuntimeError("2)You have also changed the size of base array of port_idx_connected_to_switch_neioghbors.");
+
     }
 
     if (chosen_interface_indexes.size() == 0) {
         // Cannot bounce this packet, drop it and get to the next packet
         EV << "No available ports was found to bounce the packet, drop the bounced packet." << endl;
+        std::cout << simTime() << ": No available ports was found to bounce the packet, drop the bounced packet." << endl;
 //            emit(feedBackPacketDroppedSignal, int(frame->getIs_bursty()));
 //            emit(feedBackPacketDroppedPortSignal, ie2->getIndex());
         light_in_relay_packet_drop_counter++;
@@ -1658,7 +1812,7 @@ void BouncingIeee8021dRelay::apply_early_deflection(Packet *packet, bool conside
     }
     if (queue_full || drop_due_to_threshold) {
         EV << "Dropping deflected packet packet to " << queue_full_path << endl;
-//        std::cout << simTime() << ": Dropping deflected packet packet to " << queue_full_path << endl;
+        std::cout << simTime() << ": Dropping deflected packet packet to " << queue_full_path << endl;
         light_in_relay_packet_drop_counter++;
         delete packet;
         return;
@@ -1688,6 +1842,15 @@ void BouncingIeee8021dRelay::apply_early_deflection(Packet *packet, bool conside
     packet->trim();
     emit(packetSentToLowerSignal, packet);
     send(packet, "ifOut");
+
+    // DEBUG: Log the bouncing port
+
+    std::cout << "EARLY_DEFLECT switch=" << switch_name
+    << " ingressPort=" << ingress_interface_id
+    << " originalOutPort=" << ie2->getInterfaceId()
+    << " bouncePort=" << ie->getInterfaceId()
+    << std::endl;
+
 }
 
 void BouncingIeee8021dRelay::find_interface_to_bounce_randomly_v2(Packet *packet, bool consider_servers, InterfaceEntry *ie2) {
@@ -2573,18 +2736,18 @@ unsigned long BouncingIeee8021dRelay::getPacketIDFromPacket(Packet *packet, Inte
 
 void BouncingIeee8021dRelay::dispatch(Packet *packet, InterfaceEntry *ie)
 {
-//    std::string packet_name = packet->getName();
-//    if (packet_name.find("tcpseg") != std::string::npos) {
-//        delete packet;
-//        return;
-//    }
-//    drop_cnt--;
-//    if (drop_cnt <= 0){
-//        delete packet;
-//        return;
-//    }
+    //    std::string packet_name = packet->getName();
+    //    if (packet_name.find("tcpseg") != std::string::npos) {
+    //        delete packet;
+    //        return;
+    //    }
+    //    drop_cnt--;
+    //    if (drop_cnt <= 0){
+    //        delete packet;
+    //        return;
+    //    }
 
-//    std::cout << simTime() << endl
+    //    std::cout << simTime() << endl
 
     EV_INFO << "BouncingIeee8021dRelay::dispatch called for " << packet->str() << endl;
     // One-time startup log to verify runtime guard flags for v2 threshold path
@@ -2595,11 +2758,13 @@ void BouncingIeee8021dRelay::dispatch(Packet *packet, InterfaceEntry *ie)
                 << ", use_vertigo_prio_queue=" << use_vertigo_prio_queue
                 << ", bounce_randomly_v2=" << bounce_randomly_v2 << endl;
     }
-    bool is_tcp_seg  = false;
+
+    bool is_tcp_seg = false;
     int switchId = getParentModule()->getIndex();
     bool is_tcp_with_payload = false;
     int sequenceNo = -1;
     size_t hashedId = -1;
+
     if (ie != nullptr) {
         b position = packet->getFrontOffset();
         packet->setFrontIteratorPosition(b(0));
@@ -2628,17 +2793,21 @@ void BouncingIeee8021dRelay::dispatch(Packet *packet, InterfaceEntry *ie)
                 is_tcp_with_payload = true;
                 long requesterID = static_cast<long>(payload->getRequesterID());
                 sequenceNo = tcp_header->getSequenceNo();
-                uint16_t srcPort  = tcp_header->getSrcPort();
+                uint16_t srcPort = tcp_header->getSrcPort();
                 uint16_t dstPort = tcp_header->getDestPort();
-                uint32_t srcAddrInt  = ip_header->getSrcAddress().getInt();
-                uint32_t dstAddrInt = ip_header->getDestAddress().getInt();
+                // uint32_t srcAddrInt = ip_header->getSourceAddress().getInt();
+                // uint32_t dstAddrInt = ip_header->getDestinationAddress().getInt();
+                const auto& srcL3 = ip_header->getSourceAddress();
+                const auto& dstL3 = ip_header->getDestinationAddress();
+                uint32_t srcAddrInt = srcL3.toIpv4().getInt();
+                uint32_t dstAddrInt = dstL3.toIpv4().getInt();
                 FlowKey f1 = FlowKey{static_cast<uint32_t>(sequenceNo), srcPort, dstPort, srcAddrInt, dstAddrInt};
                 hashedId = f1.getSafeHash();
-                
+
                 // Create true flow ID (5-tuple WITHOUT sequence number for flow identification)
                 FlowKey flowKey = FlowKey{0, srcPort, dstPort, srcAddrInt, dstAddrInt}; // sequenceNo = 0 for flow-level grouping
                 size_t trueFlowId = flowKey.getSafeHash();
-                
+
                 long packetUniqueID = requesterID * 100000L + static_cast<long>(sequenceNo);
                 short ttl = ip_header->getTimeToLive();
                 long packetSizeBytes = packet->getTotalLength().get(); // Get packet size in bytes
@@ -2650,7 +2819,7 @@ void BouncingIeee8021dRelay::dispatch(Packet *packet, InterfaceEntry *ie)
                 emit(switchIdSignal, switchId);
                 emit(flowIdSignal, trueFlowId); // Emit true flow identifier
                 emit(packetSizeSignal, packetSizeBytes); // Emit packet size in bytes
-                
+
                 long totalOcc = 0;
                 for (auto mac : macList)
                     totalOcc += mac->get_queue_occupancy(mac->getFullPath() + ".queue");
@@ -2662,7 +2831,6 @@ void BouncingIeee8021dRelay::dispatch(Packet *packet, InterfaceEntry *ie)
                     tot_capacity += mac->get_queue_capacity(mac->getFullPath() + ".queue");
                 }
                 emit(queuesTotCapacitySignal, tot_capacity);
-                
             }
 
             // Ricostruisci il pacchetto nell'ordine corretto
@@ -2671,15 +2839,12 @@ void BouncingIeee8021dRelay::dispatch(Packet *packet, InterfaceEntry *ie)
         }
         packet->insertAtFront(ip_header);
 
-
         packet->insertAtFront(mac_header_temp);
         packet->insertAtFront(phy_header_temp);
         //packet->insertAtFront(ip_header_temp);
         //packet->insertAtFront(tcp_header_temp);
         //packet->insertAtFront(app_msg_temp);
         packet->setFrontIteratorPosition(position);
-            
-        
 
         //long seq_number = static_cast<long>(tcp_header_temp->getSequenceNo());
         //emit(requesterIDSignal, seq_number);
@@ -2692,17 +2857,16 @@ void BouncingIeee8021dRelay::dispatch(Packet *packet, InterfaceEntry *ie)
             EV_INFO << "Emesso packetUniqueID = " << packetUniqueID << endl;
             EV_INFO << "Emesso requesterID = " << requesterID << " per il pacchetto " << packet->getName() << endl;
         }
-        
+
         // Estrai e registra il requesterID per ogni pacchetto
         if (requesterID > 0) {  // emetti solo quando il requesterID è stato effettivamente trovato
             emit(requesterIDSignal, requesterID);
             EV_INFO << "Emesso requesterID = " << requesterID << " per il pacchetto " << packet->getName() << endl;
         }
-            */
+        */
     } else {
         EV_INFO << "InterfaceEntry is nullpt." << endl;
     }
-    
 
     const auto& frame = packet->peekAtFront<EthernetMacHeader>();
     std::string switch_name = getParentModule()->getFullName();
@@ -2710,20 +2874,19 @@ void BouncingIeee8021dRelay::dispatch(Packet *packet, InterfaceEntry *ie)
     //size_t h = std::hash<std::string>{}(switch_name);
     //long hashValue = static_cast<long>(h);
     //emit(requesterIDSignal, hashValue);
-    
 
-//    if (drop_cnt >=0 && frame->getPayload_length() >= b(100)) {
-//        delete packet;
-//        drop_cnt--;
-//        return;
-//    }
+    //    if (drop_cnt >=0 && frame->getPayload_length() >= b(100)) {
+    //        delete packet;
+    //        drop_cnt--;
+    //        return;
+    //    }
 
     std::string module_path_string;
     InterfaceEntry *ie2 = nullptr;
     module_path_string = switch_name + ".eth[" + std::to_string(ie->getIndex()) + "].mac";
     AugmentedEtherMac *mac_temp = check_and_cast<AugmentedEtherMac *>(getModuleByPath(module_path_string.c_str()));
     std::string queue_full_path = module_path_string + ".queue";
-    if (is_tcp_with_payload){
+    if (is_tcp_with_payload) {
         long queue_occupancy = mac_temp->get_queue_occupancy(queue_full_path);
         emit(queueLenSignal, queue_occupancy);
         long queue_capacity = mac_temp->get_queue_capacity(queue_full_path);
@@ -2750,16 +2913,68 @@ void BouncingIeee8021dRelay::dispatch(Packet *packet, InterfaceEntry *ie)
             queue_full_path = module_path_string + ".queue.mainQueue";
         }
 
-
+        // print status of can_deflect and other booleans (bounce...)
+        // std::cout << "can_deflect=" << can_deflect
+        //           << ", bounce_uniform_random=" << bounce_uniform_random
+        //           << ", bounce_probabilistically=" << bounce_probabilistically
+        //           << ", bounce_probabilistic_smooth=" << bounce_probabilistic_smooth
+        //           << ", bounce_with_rl_policy=" << bounce_with_rl_policy
+        //           << ", use_v2_pifo=" << use_v2_pifo
+        //           << ", bounce_randomly_v2=" << bounce_randomly_v2
+        //           << ", use_vertigo_prio_queue=" << use_vertigo_prio_queue
+        //           << endl;
 
         if (can_deflect && bounce_uniform_random) {
             // UNIFORM RANDOM deflection: 50% coin-flip to deflect, uniform choice of neighbor if deflecting
             std::bernoulli_distribution coin(uniform_random_deflect_prob);
             bool deflect = coin(rng);
             EV << "Uniform-random deflect=" << deflect << " (p=" << uniform_random_deflect_prob << ") for packet " << packet->getName() << "\n";
-            if (deflect) {
-                if (bolt_is_packet_src(packet)) {
-                    ie2 = ie; // do not deflect SRC packets
+            if (deflect && !bolt_is_packet_src(packet)) {
+                bool tokens_ok = !use_token_bucket_gate
+                || acquire_token_for_deflection(ie, ie, "uniform_random");
+                if (tokens_ok) {
+                    if (dctcp_mark_deflected_packets_only)
+                        dctcp_mark_ecn_for_deflected_packets(packet);
+                    mark_packet_deflection_tag(packet);
+                    if (is_tcp_with_payload) {
+                        emit(actionSeqNumSignal, hashedId);
+                        emit(switchIdActionSignal, switchId);
+                        emit(packetActionSignal, 1);
+                    }
+                    // Select bounce port and send/delete
+                    apply_early_deflection(packet, false, ie);
+                    return; // packet handled
+                } else {
+                    EV_INFO << "Uniform-random deflection blocked by token bucket gate on port "
+                            << ie->getInterfaceId() << endl;
+                }
+            }
+
+            // No deflection (coin=false), SRC packet, or token-limited -> forward normally
+            ie2 = ie;
+            EV_INFO << "Normal forward for packet " << packet->getName() << "\n";
+            if (is_tcp_with_payload) {
+                emit(actionSeqNumSignal, hashedId);
+                emit(switchIdActionSignal, switchId);
+                emit(packetActionSignal, 0);
+            }
+        }
+        else if (can_deflect && bounce_probabilistic_smooth) {
+            double smoothProbability = 0.0;
+            double smoothDice = 0.0;
+            
+            totalPackets++;
+
+            bool deflect = compute_smooth_deflection_decision(packet, ie, smoothProbability, smoothDice);
+            std::cout << "Smooth probabilistic deflection decision (prob=" << smoothProbability
+                    << ", dice=" << smoothDice << ") for " << packet->getName() << std::endl;
+
+            if (deflect && !bolt_is_packet_src(packet)) {
+                bool tokens_ok = !use_token_bucket_gate
+                    || acquire_token_for_deflection(ie, ie, "smooth_probabilistic");                
+                if (!tokens_ok) {
+                    EV_INFO << "Smooth probabilistic deflection blocked by token bucket gate for packet "
+                            << packet->getName() << " on port " << ie->getInterfaceId() << endl;
                 } else {
                     if (dctcp_mark_deflected_packets_only)
                         dctcp_mark_ecn_for_deflected_packets(packet);
@@ -2769,26 +2984,28 @@ void BouncingIeee8021dRelay::dispatch(Packet *packet, InterfaceEntry *ie)
                         emit(switchIdActionSignal, switchId);
                         emit(packetActionSignal, 1);
                     }
-                    // Use the existing early-deflection machinery which applies
-                    // power-of-n selection and proper queue checks for bounced
-                    // packets. apply_early_deflection will either send the
-                    // packet (and return) or delete it if it cannot be bounced.
                     apply_early_deflection(packet, false, ie);
-                    return; // packet already sent or deleted by apply_early_deflection
-                }
-            } else {
-                // Forward normally
-                ie2 = ie;
-                EV_INFO << "Normal forward for packet " << packet->getName() << "\n";
-                if (is_tcp_with_payload) {
-                    emit(actionSeqNumSignal, hashedId);
-                    emit(switchIdActionSignal, switchId);
-                    emit(packetActionSignal, 0);
+
+                    // debug deflections/s
+                    deflectedPackets++;
+                    print_deflections_per_second();
+
+                    return; // packet already handled
                 }
             }
+
+            // Default: forward on the original port (deflect==false, SRC packet, or token-limited)
+            ie2 = ie;
+            EV_INFO << "Smooth probabilistic forward (prob=" << smoothProbability
+                    << ", dice=" << smoothDice << ") for packet " << packet->getName() << endl;
+            if (is_tcp_with_payload) {
+                emit(actionSeqNumSignal, hashedId);
+                emit(switchIdActionSignal, switchId);
+                emit(packetActionSignal, 0);
+            }
         }
-        else if (can_deflect && bounce_probabilistically) {
-            // Using PABO
+
+        else if (can_deflect && bounce_probabilistically) { // old PABO
             ie2 = find_interface_to_bounce_probabilistically(packet, ie);
         }
         else if (can_deflect && bounce_with_rl_policy) {
@@ -2798,78 +3015,84 @@ void BouncingIeee8021dRelay::dispatch(Packet *packet, InterfaceEntry *ie)
                 EV << "DEFLECTION_CAUSE=BUFFER_FULL_OVERRIDE_RL switch=" << switch_name
                    << " port=" << ie->getIndex()
                    << " queuePath=" << queue_full_path << endl;
-                
+
                 if (bolt_is_packet_src(packet)) {
                     // do not deflect SRC packets - drop instead
-                    ie2 = ie;  
+                    ie2 = ie;
                 } else {
-                    // Mark packet for deflection
-                    if (dctcp_mark_deflected_packets_only)
-                        dctcp_mark_ecn_for_deflected_packets(packet);
-                    mark_packet_deflection_tag(packet);
-                    
-                    if (is_tcp_with_payload) {
-                        emit(actionSeqNumSignal, hashedId);
-                        emit(switchIdActionSignal, switchId);
-                        emit(packetActionSignal, 1);  // Force deflection
-                    }
-                    
                     // Use random deflection when buffer forces override
                     ie2 = find_interface_to_bounce_randomly(packet);
-                    
-                    if (ie2 == nullptr) {
-                        // If no valid deflection port found, forward normally (will likely drop)
-                        ie2 = ie;
+
+                    if (ie2) {
+                        if (dctcp_mark_deflected_packets_only)
+                            dctcp_mark_ecn_for_deflected_packets(packet);
+                        mark_packet_deflection_tag(packet);
+
+                        if (is_tcp_with_payload) {
+                            emit(actionSeqNumSignal, hashedId);
+                            emit(switchIdActionSignal, switchId);
+                            emit(packetActionSignal, 1);  // Force deflection
+                        } else {
+                            ie2 = ie;
+                        }
                     }
+                }
+
+                if (ie2 == nullptr) {
+                    // If no valid deflection port found, forward normally (will likely drop)
+                    ie2 = ie;
                 }
             } else {
                 // Buffer has space - use RL-based deflection policy
                 bool should_deflect = get_rl_deflection_decision(packet, ie);
-            
-            if (should_deflect) {
-                if (bolt_is_packet_src(packet)) {
-                    // do not deflect SRC packets
-                    ie2 = ie;
-                } else {
-                    EV << "DEFLECTION_CAUSE=RL_POLICY switch=" << switch_name
-                       << " port=" << ie->getIndex()
-                       << " queuePath=" << queue_full_path << endl;
-                    
-                    // Mark packet for deflection
-                    if (dctcp_mark_deflected_packets_only)
-                        dctcp_mark_ecn_for_deflected_packets(packet);
-                    mark_packet_deflection_tag(packet);
-                    
-                    if (is_tcp_with_payload) {
-                        emit(actionSeqNumSignal, hashedId);
-                        emit(switchIdActionSignal, switchId);
-                        emit(packetActionSignal, 1);
+
+                if (should_deflect) {
+                    if (bolt_is_packet_src(packet)) {
+                        // do not deflect SRC packets
+                        ie2 = ie;
+                    } else {
+                        EV << "DEFLECTION_CAUSE=RL_POLICY switch=" << switch_name
+                           << " port=" << ie->getIndex()
+                           << " queuePath=" << queue_full_path << endl;
+
+                        // For simplicity, use random deflection when RL decides to deflect
+                        // TODO: This can be enhanced to use RL for port selection as well
+                        ie2 = find_interface_to_bounce_randomly(packet);
+
+                        if (ie2) {
+                            if (dctcp_mark_deflected_packets_only)
+                                dctcp_mark_ecn_for_deflected_packets(packet);
+                            mark_packet_deflection_tag(packet);
+
+                            if (is_tcp_with_payload) {
+                                emit(actionSeqNumSignal, hashedId);
+                                emit(switchIdActionSignal, switchId);
+                                emit(packetActionSignal, 1);
+                            }
+                        } else {
+                            ie2 = ie;
+                        }
                     }
-                    
-                    // For simplicity, use random deflection when RL decides to deflect
-                    // TODO: This can be enhanced to use RL for port selection as well
-                    ie2 = find_interface_to_bounce_randomly(packet);
-                    
+
                     if (ie2 == nullptr) {
                         // If no valid deflection port found, forward normally
                         ie2 = ie;
                     }
+                } else {
+                    // RL policy decides to forward normally
+                    ie2 = ie;
+
+                    // Emit signal for no deflection decision
+                    if (is_tcp_with_payload) {
+                        emit(actionSeqNumSignal, hashedId);
+                        emit(switchIdActionSignal, switchId);
+                        emit(packetActionSignal, 0); // No deflection
+                    }
                 }
-            } else {
-                // RL policy decides to forward normally
-                ie2 = ie;
-                
-                // Emit signal for no deflection decision
-                if (is_tcp_with_payload) {
-                    emit(actionSeqNumSignal, hashedId);
-                    emit(switchIdActionSignal, switchId);
-                    emit(packetActionSignal, 0); // No deflection
-                }
-            }
-            } // Close the if (can_deflect && use_rl_policy) block
+            } // Close the if (mac_temp->is_queue_full(...)) / else block
         }
         else if (can_deflect && use_v2_pifo && bounce_randomly_v2 && !use_vertigo_prio_queue) {
-                            // Non-vertigo (single-queue V2PIFO) threshold handling.
+                    // Non-vertigo (single-queue V2PIFO) threshold handling.
                     // Try to call the queue-specific threshold API directly; if not available,
                     // fall back to overflow check via the MAC.
                     EV << "Entering non-vertigo V2 threshold branch for " << module_path_string << "\n";
@@ -2899,17 +3122,29 @@ void BouncingIeee8021dRelay::dispatch(Packet *packet, InterfaceEntry *ie)
                     }
 
                     if (threshold_met) {
-                                try {
-                                     long occ_bytes = mac_temp->get_queue_occupancy(queue_full_path);
-                                     EV << "DEFLECTION_CAUSE=THRESHOLD (non-vertigo) switch=" << switch_name
-                                         << " port=" << ie->getIndex()
-                                         << " queuePath=" << queue_full_path
-                                         << " occupancyB=" << occ_bytes << endl;
-                                } catch (...) {
-                                     EV << "DEFLECTION_CAUSE=THRESHOLD (non-vertigo) switch=" << switch_name
-                                         << " port=" << ie->getIndex()
-                                         << " queuePath=" << queue_full_path << endl;
-                                }
+                        bool tokens_ok = !use_token_bucket_gate
+                            || acquire_token_for_deflection(ie, ie, "non_vertigo_v2_threshold");
+                        if (!tokens_ok) {
+                            EV_INFO << "Non-vertigo V2 threshold deflection blocked by token bucket gate on port "
+                                    << ie->getInterfaceId() << endl;
+                            ie2 = ie;
+                            return;
+                        } 
+
+                        // DEBUG
+                        try {
+                            long occ_bytes = mac_temp->get_queue_occupancy(queue_full_path);
+                            EV << "DEFLECTION_CAUSE=THRESHOLD (non-vertigo) switch=" << switch_name
+                                << " port=" << ie->getIndex()
+                                << " queuePath=" << queue_full_path
+                                << " occupancyB=" << occ_bytes << endl;
+                        } catch (...) {
+                            EV << "DEFLECTION_CAUSE=THRESHOLD (non-vertigo) switch=" << switch_name
+                                << " port=" << ie->getIndex()
+                                << " queuePath=" << queue_full_path << endl;
+                        }
+
+
                         if (bolt_is_packet_src(packet)) {
                             delete packet;
                         } else {
@@ -2923,19 +3158,20 @@ void BouncingIeee8021dRelay::dispatch(Packet *packet, InterfaceEntry *ie)
                             }
                             apply_early_deflection(packet, false, ie);
                         }
-                        return;
+
+                        return; // handled by apply_early_deflection
                     } else if (mac_temp->is_queue_full(packet_length, queue_full_path)) {
-                                try {
-                                     long occ_bytes = mac_temp->get_queue_occupancy(queue_full_path);
-                                     EV << "DEFLECTION_CAUSE=OVERFLOW (non-vertigo) switch=" << switch_name
-                                         << " port=" << ie->getIndex()
-                                         << " queuePath=" << queue_full_path
-                                         << " occupancyB=" << occ_bytes << endl;
-                                } catch (...) {
-                                     EV << "DEFLECTION_CAUSE=OVERFLOW (non-vertigo) switch=" << switch_name
-                                         << " port=" << ie->getIndex()
-                                         << " queuePath=" << queue_full_path << endl;
-                                }
+                        try {
+                                long occ_bytes = mac_temp->get_queue_occupancy(queue_full_path);
+                                EV << "DEFLECTION_CAUSE=OVERFLOW (non-vertigo) switch=" << switch_name
+                                    << " port=" << ie->getIndex()
+                                << " queuePath=" << queue_full_path
+                                << " occupancyB=" << occ_bytes << endl;
+                            } catch (...) {
+                                    EV << "DEFLECTION_CAUSE=OVERFLOW (non-vertigo) switch=" << switch_name
+                                        << " port=" << ie->getIndex()
+                                        << " queuePath=" << queue_full_path << endl;
+                            }
                         if (bolt_is_packet_src(packet)) {
                             delete packet;
                         } else {
@@ -2953,43 +3189,43 @@ void BouncingIeee8021dRelay::dispatch(Packet *packet, InterfaceEntry *ie)
                     } else {
                         ie2 = ie;
                     }
-        }
-        else if (can_deflect && use_vertigo_prio_queue && bounce_randomly_v2) {
-            bolt_evaluate_if_src_packet_should_be_generated(packet, ie, ignore_cc_thresh_for_deflected_packets);
-                    // Prioritize explicit v2-threshold based deflection first.
-                    // If the v2 threshold condition (and tag ordering) is met,
-                    // perform early deflection based on threshold. Otherwise,
-                    // fall back to queue-full handling (overflow-triggered deflection)
-                    // to preserve previous behavior.
-                    if (mac_temp->is_queue_over_v2_threshold(packet_length, queue_full_path, packet) &&
-                        mac_temp->is_packet_tag_larger_than_last_packet(queue_full_path, packet)) {
-                    //                std::cout << simTime() << ": Applying early deflection (threshold)" << endl;
-                                // Instrumentation: mark deflection root cause as THRESHOLD
-                                try {
-                                     long occ_bytes = mac_temp->get_queue_occupancy(queue_full_path);
-                                     EV << "DEFLECTION_CAUSE=THRESHOLD switch=" << switch_name
-                                         << " port=" << ie->getIndex()
-                                         << " queuePath=" << queue_full_path
-                                         << " occupancyB=" << occ_bytes << endl;
-                                } catch (...) {
-                                     EV << "DEFLECTION_CAUSE=THRESHOLD switch=" << switch_name
-                                         << " port=" << ie->getIndex()
-                                         << " queuePath=" << queue_full_path << endl;
+                    }
+                    else if (can_deflect && use_vertigo_prio_queue && bounce_randomly_v2) {
+                        bolt_evaluate_if_src_packet_should_be_generated(packet, ie, ignore_cc_thresh_for_deflected_packets);
+                        // Prioritize explicit v2-threshold based deflection first.
+                        // If the v2 threshold condition (and tag ordering) is met,
+                        // perform early deflection based on threshold. Otherwise,
+                        // fall back to queue-full handling (overflow-triggered deflection)
+                        // to preserve previous behavior.
+                        if (mac_temp->is_queue_over_v2_threshold(packet_length, queue_full_path, packet) &&
+                            mac_temp->is_packet_tag_larger_than_last_packet(queue_full_path, packet)) {
+                        //                std::cout << simTime() << ": Applying early deflection (threshold)" << endl;
+                                    // Instrumentation: mark deflection root cause as THRESHOLD
+                                    try {
+                                        long occ_bytes = mac_temp->get_queue_occupancy(queue_full_path);
+                                        EV << "DEFLECTION_CAUSE=THRESHOLD switch=" << switch_name
+                                            << " port=" << ie->getIndex()
+                                            << " queuePath=" << queue_full_path
+                                            << " occupancyB=" << occ_bytes << endl;
+                                    } catch (...) {
+                                        EV << "DEFLECTION_CAUSE=THRESHOLD switch=" << switch_name
+                                            << " port=" << ie->getIndex()
+                                            << " queuePath=" << queue_full_path << endl;
+                                    }
+                            if (bolt_is_packet_src(packet)) {
+                                delete packet;
+                            } else {
+                                if (dctcp_mark_deflected_packets_only)
+                                    dctcp_mark_ecn_for_deflected_packets(packet);
+                                mark_packet_deflection_tag(packet);
+                                if(is_tcp_with_payload){
+                                    emit(actionSeqNumSignal, hashedId);
+                                    emit(switchIdActionSignal, switchId);
+                                    emit(packetActionSignal, 1);
                                 }
-                        if (bolt_is_packet_src(packet)) {
-                            delete packet;
-                        } else {
-                            if (dctcp_mark_deflected_packets_only)
-                                dctcp_mark_ecn_for_deflected_packets(packet);
-                            mark_packet_deflection_tag(packet);
-                            if(is_tcp_with_payload){
-                                emit(actionSeqNumSignal, hashedId);
-                                emit(switchIdActionSignal, switchId);
-                                emit(packetActionSignal, 1);
+                                apply_early_deflection(packet, false, ie);
                             }
-                            apply_early_deflection(packet, false, ie);
-                        }
-                        return;
+                            return;
                     } else if (mac_temp->is_queue_full(packet_length, queue_full_path)) {
                     //                std::cout << simTime() << ": Applying early deflection (overflow)" << endl;
                                 // Instrumentation: mark deflection root cause as OVERFLOW
@@ -3021,7 +3257,8 @@ void BouncingIeee8021dRelay::dispatch(Packet *packet, InterfaceEntry *ie)
                     } else {
                         ie2 = ie;
                     }
-        } else if (can_deflect && mac_temp->is_queue_full(packet_length, queue_full_path)) {
+        // BLOCK: overflow-triggered deflection methods
+         } else if (can_deflect && mac_temp->is_queue_full(packet_length, queue_full_path)) {
             if (bounce_randomly) {
                 if (bolt_is_packet_src(packet)) {
                     // do not deflect SRC packets
@@ -3157,6 +3394,7 @@ void BouncingIeee8021dRelay::dispatch(Packet *packet, InterfaceEntry *ie)
     packet->trim();
     emit(packetSentToLowerSignal, packet);
     send(packet, "ifOut");
+
 }
 
 void BouncingIeee8021dRelay::learn(MacAddress srcAddr, int arrivalInterfaceId)
@@ -3396,5 +3634,25 @@ bool BouncingIeee8021dRelay::get_rl_deflection_decision(Packet *packet, Interfac
     } catch (const std::exception& e) {
         EV_ERROR << "Error in RL deflection decision: " << e.what() << endl;
         return false;  // Default to forward in case of error
+    }
+}
+
+void BouncingIeee8021dRelay::print_deflections_per_second()
+{
+    static simtime_t nextReport = SIMTIME_ZERO;
+
+    if (simTime() >= nextReport) {
+        double elapsed = simTime().dbl();
+        double deflectionRate = (elapsed > 0.0) ? (deflectedPackets / elapsed) : 0.0;
+        double ratio = (totalPackets > 0) ? ((double)deflectedPackets / totalPackets) : 0.0;
+
+        std::cout << "DEFLECTION_DEBUG switch=" << getParentModule()->getFullName()
+                  << " t=" << simTime()
+                  << " total=" << totalPackets
+                  << " deflected=" << deflectedPackets
+                  << " ratio=" << ratio
+                  << " rate=" << deflectionRate << " deflections/s" << std::endl;
+
+        nextReport = simTime() +  SimTime(0.001);
     }
 }

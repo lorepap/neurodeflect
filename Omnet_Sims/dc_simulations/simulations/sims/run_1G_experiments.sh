@@ -6,6 +6,7 @@
 # relayUnit.deflect_prob_beta are defined as sweep variables). The script
 # runs opp_runall with the PROBABILISTIC config so opp_runall expands theta/beta.
 
+# TODO: add input flags to avoid input errors
 
 # helper to extract results and move them into results_1G_probabilistic
 do_extract () {
@@ -14,6 +15,7 @@ do_extract () {
         exit 3
     fi
     echo "Extracting results from results/$1/"
+    bash ./dir_creator.sh --keep-logs
     python3 ./extractor_shell_creator.py "$1"
     pushd ./results/
     bash ../extractor.sh
@@ -37,7 +39,7 @@ if [ -z "$1" ]; then
     echo "Example: $0 10s (for 10 seconds)"
     echo "Example: $0 1000ms (for 1000 milliseconds)"
     echo "Example: $0 0.1s (for 0.1 seconds)"
-    echo "Optional second argument: config to run (e.g., ECMP, PROBABILISTIC, RANDOM, THRESHOLD). If not given, all three will be run."
+    echo "Optional second argument: config to run (e.g., ECMP, PROBABILISTIC, PROBABILISTIC_TB, RANDOM, RANDOM_TB, THRESHOLD, THRESHOLD_TB). If not given, all configs will be run."
     exit 1
 fi
 
@@ -49,7 +51,8 @@ TYPE_RAW=""
 
 while [ $# -gt 0 ]; do
     case "$1" in
-        debug|--debug)
+        fast|--fast)
+            echo "Debug mode enabled"
             DEBUG_OPTION="--cmdenv-express-mode=true"
             ;;
         *)
@@ -83,8 +86,8 @@ if [ -n "$TYPE_RAW" ]; then
 else
     TYPE_UPPER=""
     TYPE_LOWER=""
-    # otherwise create the a directory for each of the configs we know about (ecmp, random, probabilistic, threshold.)
-    for cfg in ecmp random probabilistic threshold; do
+    # otherwise create the directories for each supported config
+    for cfg in ecmp random probabilistic threshold random_tb probabilistic_tb threshold_tb; do
         mkdir -p "results/$cfg"
     done
 fi
@@ -101,7 +104,7 @@ if [ -n "$TYPE_UPPER" ]; then
         PROBABILISTIC)
             echo "Running PROBABILISTIC"
             prepare_logs_dir "probabilistic_1G"
-            opp_runall -j50 ../../src/dc_simulations -m -u Cmdenv -c PROBABILISTIC -n ..:../../src:../../../inet/src:../../../inet/examples:../../../inet/tutorials:../../../inet/showcases --image-path=../../../inet/images -l ../../../inet/src/INET omnetpp_1G_collection.ini --sim-time-limit=$SIMULATION_TIME $DEBUG_OPTION > opp_runall.log 2>&1
+            opp_runall -j50 ../../src/dc_simulations -m -u Cmdenv -c PROBABILISTIC -n ..:../../src:../../../inet/src:../../../inet/examples:../../../inet/tutorials:../../../inet/showcases --image-path=../../../inet/images -l ../../../inet/src/INET omnetpp_1G_collection.ini --sim-time-limit=$SIMULATION_TIME $DEBUG_OPTION >logs/probabilistic_1G/opp_runall.log 2>&1
             echo "opp_runall finished successfully; log saved to opp_runall.log"
             # extract and move
             do_extract probabilistic
@@ -113,10 +116,25 @@ if [ -n "$TYPE_UPPER" ]; then
             cp -r extracted_results/* results_1G_probabilistic/
             rm -rf extracted_results
             ;;
+        PROBABILISTIC_TB)
+            echo "Running PROBABILISTIC_TB"
+            prepare_logs_dir "probabilistic_tb_1G"
+            opp_runall -j50 ../../src/dc_simulations -m -u Cmdenv -c PROBABILISTIC_TB -n ..:../../src:../../../inet/src:../../../inet/examples:../../../inet/tutorials:../../../inet/showcases --image-path=../../../inet/images -l ../../../inet/src/INET omnetpp_1G_collection.ini --sim-time-limit=$SIMULATION_TIME $DEBUG_OPTION >logs/probabilistic_tb_1G/opp_runall.log 2>&1
+            echo "opp_runall finished successfully; log saved to opp_runall.log"
+            # extract and move
+            do_extract probabilistic_tb
+            cp results/probabilistic_tb/*.out logs/probabilistic_tb_1G/ || true
+            # move the extracted results
+            echo "Moving the extracted results to results_1G_probabilistic_tb"
+            rm -rf results_1G_probabilistic_tb
+            mkdir -p results_1G_probabilistic_tb
+            cp -r extracted_results/* results_1G_probabilistic_tb/
+            rm -rf extracted_results
+            ;;
         RANDOM)
             echo "Running RANDOM"
             prepare_logs_dir "random_1G"
-            opp_runall -j50 ../../src/dc_simulations -m -u Cmdenv -c RANDOM -n ..:../../src:../../../inet/src:../../../inet/examples:../../../inet/tutorials:../../../inet/showcases --image-path=../../../inet/images -l ../../../inet/src/INET omnetpp_1G_collection.ini --sim-time-limit=$SIMULATION_TIME $DEBUG_OPTION > opp_runall.log 2>&1
+            opp_runall -j50 ../../src/dc_simulations -m -u Cmdenv -c RANDOM -n ..:../../src:../../../inet/src:../../../inet/examples:../../../inet/tutorials:../../../inet/showcases --image-path=../../../inet/images -l ../../../inet/src/INET omnetpp_1G_collection.ini --sim-time-limit=$SIMULATION_TIME $DEBUG_OPTION >logs/random_1G/opp_runall.log 2>&1
             echo "opp_runall finished successfully; log saved to opp_runall.log"
             # extract and move
             do_extract random
@@ -128,10 +146,25 @@ if [ -n "$TYPE_UPPER" ]; then
             cp -r extracted_results/* results_1G_random/
             rm -rf extracted_results
             ;;
+        RANDOM_TB)
+            echo "Running RANDOM_TB"
+            prepare_logs_dir "random_tb_1G"
+            opp_runall -j50 ../../src/dc_simulations -m -u Cmdenv -c RANDOM_TB -n ..:../../src:../../../inet/src:../../../inet/examples:../../../inet/tutorials:../../../inet/showcases --image-path=../../../inet/images -l ../../../inet/src/INET omnetpp_1G_collection.ini --sim-time-limit=$SIMULATION_TIME $DEBUG_OPTION >logs/random_tb_1G/opp_runall.log 2>&1
+            echo "opp_runall finished successfully; log saved to opp_runall.log"
+            # extract and move
+            do_extract random_tb
+            cp results/random_tb/*.out logs/random_tb_1G/ || true
+            # move the extracted results
+            echo "Moving the extracted results to results_1G_random_tb"
+            rm -rf results_1G_random_tb
+            mkdir -p results_1G_random_tb
+            cp -r extracted_results/* results_1G_random_tb/
+            rm -rf extracted_results
+            ;;
         THRESHOLD)
             echo "Running THRESHOLD"
             prepare_logs_dir "threshold_1G"
-            opp_runall -j50 ../../src/dc_simulations -m -u Cmdenv -c THRESHOLD -n ..:../../src:../../../inet/src:../../../inet/examples:../../../inet/tutorials:../../../inet/showcases --image-path=../../../inet/images -l ../../../inet/src/INET omnetpp_1G_collection.ini --sim-time-limit=$SIMULATION_TIME $DEBUG_OPTION > opp_runall.log 2>&1
+            opp_runall -j50 ../../src/dc_simulations -m -u Cmdenv -c THRESHOLD -n ..:../../src:../../../inet/src:../../../inet/examples:../../../inet/tutorials:../../../inet/showcases --image-path=../../../inet/images -l ../../../inet/src/INET omnetpp_1G_collection.ini --sim-time-limit=$SIMULATION_TIME $DEBUG_OPTION >logs/threshold_1G/opp_runall.log 2>&1
             echo "opp_runall finished successfully; log saved to opp_runall.log"
             # extract and move  
             do_extract threshold
@@ -143,10 +176,25 @@ if [ -n "$TYPE_UPPER" ]; then
             cp -r extracted_results/* results_1G_threshold/
             rm -rf extracted_results
             ;;
+        THRESHOLD_TB)
+            echo "Running THRESHOLD_TB"
+            prepare_logs_dir "threshold_tb_1G"
+            opp_runall -j50 ../../src/dc_simulations -m -u Cmdenv -c THRESHOLD_TB -n ..:../../src:../../../inet/src:../../../inet/examples:../../../inet/tutorials:../../../inet/showcases --image-path=../../../inet/images -l ../../../inet/src/INET omnetpp_1G_collection.ini --sim-time-limit=$SIMULATION_TIME $DEBUG_OPTION >logs/threshold_tb_1G/opp_runall.log 2>&1
+            echo "opp_runall finished successfully; log saved to opp_runall.log"
+            # extract and move  
+            do_extract threshold_tb
+            cp results/threshold_tb/*.out logs/threshold_tb_1G/ || true
+            # move the extracted results    
+            echo "Moving the extracted results to results_1G_threshold_tb"
+            rm -rf results_1G_threshold_tb
+            mkdir -p results_1G_threshold_tb
+            cp -r extracted_results/* results_1G_threshold_tb/
+            rm -rf extracted_results
+            ;;
         ECMP)
             echo "Running ECMP"
             prepare_logs_dir "ecmp_1G"
-            opp_runall -j50 ../../src/dc_simulations -m -u Cmdenv -c ECMP -n ..:../../src:../../../inet/src:../../../inet/examples:../../../inet/tutorials:../../../inet/showcases --image-path=../../../inet/images -l ../../../inet/src/INET omnetpp_1G_collection.ini --sim-time-limit=$SIMULATION_TIME $DEBUG_OPTION > opp_runall.log 2>&1
+            opp_runall -j50 ../../src/dc_simulations -m -u Cmdenv -c ECMP -n ..:../../src:../../../inet/src:../../../inet/examples:../../../inet/tutorials:../../../inet/showcases --image-path=../../../inet/images -l ../../../inet/src/INET omnetpp_1G_collection.ini --sim-time-limit=$SIMULATION_TIME $DEBUG_OPTION >logs/ecmp_1G/opp_runall.log 2>&1
             echo "opp_runall finished successfully; log saved to opp_runall.log"
             # extract and move
             do_extract ecmp

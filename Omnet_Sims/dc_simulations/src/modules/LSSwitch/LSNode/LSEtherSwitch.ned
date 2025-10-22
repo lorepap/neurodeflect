@@ -107,6 +107,21 @@ module LSEtherSwitch
 		bool bounce_probabilistically = default(false);
 		double utilization_thresh = default(0.8); // the fixed value used in PABO paper
 		double bounce_probability_lambda = default(50); // the fixed value used in PABO paper 
+
+        // Piecewise Linear Probabilistic (data collection)
+        bool bounce_probabilistic_smooth = default(false);
+        double deflect_prob_theta = default(0.75);
+        double deflect_prob_beta = default(0.15);
+
+        // token-bucket gating (per-egress deflection cap)
+        bool use_token_bucket_gate = default(false);
+        double token_bucket_rate = default(-1);
+        double token_bucket_burst = default(-1);
+
+        // uniform-random deflection (per-decision Bernoulli flips)
+        bool bounce_uniform_random = default(false);
+        int uniform_random_seed_base = default(0);
+        double uniform_random_deflect_prob = default(0.05);
 		
 		bool useECMP = default(false);
 		bool use_power_of_n_lb = default(false);

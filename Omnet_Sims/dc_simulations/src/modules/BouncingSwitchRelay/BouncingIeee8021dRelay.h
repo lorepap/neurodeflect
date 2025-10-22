@@ -33,6 +33,7 @@
 #include "../V2/V2PIFOBoltQueue.h"
 #include "unordered_map"
 #include "unordered_set"
+#include "omnetpp/simtime_t.h"
 
 // PyTorch includes for RL model inference
 #include <torch/torch.h>
@@ -115,14 +116,14 @@ class BouncingIeee8021dRelay : public LayeredProtocolBase
     int naive_deflection_idx;   // This indicates the index (ranging from 0 - number of neighboring switches) for packet deflection
     //DIBS
     bool bounce_randomly, filter_out_full_ports, approximate_random_deflection;
-  // UNIFORM RANDOM (50% coin-flip) deflection mode: choose a neighbor uniformly at random
-  // ignoring queue fullness and with a 50% probability of actually deflecting.
-  bool bounce_uniform_random;
-  // Per-switch RNG for independent randomness
-  std::mt19937 rng;
-  unsigned int uniform_random_seed_base = 0;
-  // Probability to deflect in uniform-random mode (per-decision Bernoulli p)
-  double uniform_random_deflect_prob = 0.05;
+    // UNIFORM RANDOM (50% coin-flip) deflection mode: choose a neighbor uniformly at random
+    // ignoring queue fullness and with a 50% probability of actually deflecting.
+    bool bounce_uniform_random;
+    // Per-switch RNG for independent randomness
+    std::mt19937 rng;
+    unsigned int uniform_random_seed_base = 0;
+    // Probability to deflect in uniform-random mode (per-decision Bernoulli p)
+    double uniform_random_deflect_prob = 0.05;
     //Vertigo
     bool bounce_on_same_path;
     //V2
@@ -144,12 +145,12 @@ class BouncingIeee8021dRelay : public LayeredProtocolBase
     bool bounce_probabilistically;
     double utilization_thresh;
     double bounce_probability_lambda;
-  // Smooth probabilistic deflection (piecewise-linear or logistic alternative)
-  bool bounce_probabilistic_smooth;
-  // theta: midpoint queue utilization where p_deflect = 0.5
-  double deflect_prob_theta;
-  // beta: slope half-width (controls linear ramp width around theta)
-  double deflect_prob_beta;
+    // Smooth probabilistic deflection (piecewise-linear or logistic alternative)
+    bool bounce_probabilistic_smooth;
+    // theta: midpoint queue utilization where p_deflect = 0.5
+    double deflect_prob_theta;
+    // beta: slope half-width (controls linear ramp width around theta)
+    double deflect_prob_beta;
     // selective network feedback
     bool apply_selective_net_reaction;
     int selective_net_reaction_type;
@@ -162,6 +163,22 @@ class BouncingIeee8021dRelay : public LayeredProtocolBase
     std::vector<double> rl_state_std;   // State normalization standard deviations
     torch::jit::script::Module rl_model;  // Loaded PyTorch model
     bool rl_model_loaded;        // Track if model is successfully loaded
+
+    // Deflection statistics
+    unsigned long totalPackets = 0;
+    unsigned long deflectedPackets = 0;
+
+    // Token-bucket gating (per-egress deflection cap)
+    struct TokenBucketState {
+        double rate = 0;
+        double burst = 0;
+        double tokens = 0;
+        omnetpp::simtime_t lastRefill = omnetpp::simtime_t(0);
+    };
+    bool use_token_bucket_gate = false;
+    double token_bucket_rate = -1;
+    double token_bucket_burst = -1;
+    std::vector<TokenBucketState> token_buckets;
 
     typedef std::pair<MacAddress, MacAddress> MacAddressPair;
 
@@ -278,13 +295,14 @@ class BouncingIeee8021dRelay : public LayeredProtocolBase
 
     InterfaceEntry* find_interface_to_bounce_naively();
     InterfaceEntry* find_interface_to_bounce_randomly(Packet *packet);
-  InterfaceEntry* find_interface_to_bounce_uniform_random(Packet *packet);
+    InterfaceEntry* find_interface_to_bounce_uniform_random(Packet *packet);
     InterfaceEntry* find_interface_to_bounce_on_the_same_path(Packet *packet, InterfaceEntry *original_output_if);
     InterfaceEntry* find_interface_to_fw_randomly_power_of_n(Packet *packet, bool consider_servers);
     void find_interface_to_bounce_randomly_v2(Packet *packet, bool consider_servers, InterfaceEntry *ie2);
     double get_port_utilization(int port, Packet *packet);
     InterfaceEntry* find_a_port_for_packet_towards_source(Packet *packet);
     InterfaceEntry* find_interface_to_bounce_probabilistically(Packet *packet, InterfaceEntry *original_output_if);
+    bool compute_smooth_deflection_decision(Packet *packet, InterfaceEntry *original_output_if, double &probability, double &dice);
     void apply_early_deflection(Packet *packet, bool consider_servers, InterfaceEntry *ie2);
     // dctcp
     void dctcp_mark_ecn_for_deflected_packets(Packet *packet, bool has_phy_header=true);
@@ -300,9 +318,17 @@ class BouncingIeee8021dRelay : public LayeredProtocolBase
     std::vector<double> extract_rl_state_features(Packet *packet, InterfaceEntry *ie);
     bool get_rl_deflection_decision(Packet *packet, InterfaceEntry *ie);
     
+    void initialize_token_buckets();
+    int resolve_token_bucket_index(InterfaceEntry *port) const;
+    void refill_token_bucket(int bucket_index, omnetpp::simtime_t now);
+    bool try_consume_token(int bucket_index, omnetpp::simtime_t now);
+    bool acquire_token_for_deflection(InterfaceEntry *egress, InterfaceEntry *original, const char *context);
+    
     unsigned long getRequesterIDFromPacket(Packet *packet, InterfaceEntry *ie = nullptr);
     unsigned long getSequenceNumberFromPacket(Packet *packet, InterfaceEntry *ie);
     unsigned long getPacketIDFromPacket(Packet *packet, InterfaceEntry *ie);
+
+    void print_deflections_per_second();
 };
 
 #endif // ifndef __INET_BouncingIEEE8021DRELAY_H

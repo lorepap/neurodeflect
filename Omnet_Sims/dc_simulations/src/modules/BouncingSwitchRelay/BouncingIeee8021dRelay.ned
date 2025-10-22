@@ -86,13 +86,9 @@ simple BouncingIeee8021dRelay like IMacRelayUnit
         // Probability of deflection when uniform-random mode is enabled
         double uniform_random_deflect_prob = default(0.05);
 
-    // Smooth probabilistic deflection (piecewise-linear around theta)
-    bool bounce_probabilistic_smooth = default(false);
     // theta: midpoint utilization (0..1) where p_deflect = 0.5
-    double deflect_prob_theta = default(0.8);
     // beta: half-width of linear ramp around theta (0..1)
-    double deflect_prob_beta = default(0.1);
-
+    
     gates:
         input ifIn;
         output ifOut;
