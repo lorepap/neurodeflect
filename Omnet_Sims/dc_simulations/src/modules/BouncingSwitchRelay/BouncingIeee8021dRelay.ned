@@ -70,11 +70,11 @@ simple BouncingIeee8021dRelay like IMacRelayUnit
     @statistic[FlowID](title="Flow ID"; source="flowId"; record=vector,stats; interpolationmode=none); // True flow ID from 5-tuple
     // PacketSize statistic moved to network level (LeafSpine1G.ned) for aggregation
         //@statistic[PacketUniqueID](title="Packet Unique ID"; source="packetUniqueID"; record=vector,stats; interpolationmode=none); // Registra l'ID univoco del pacchetto
-        //@statistic[QueueLen](title="Queue Length"; source="queueLen"; record=vector,stats; interpolationmode=none); // Registra la lunghezza della coda
-        //@statistic[QueuesTotLen](title="Total Queues Length"; source="queuesTotLen"; record=vector,stats; interpolationmode=none); // Registra la lunghezza totale delle code
-        //@statistic[QueueCapacity](title="Queue Capacity"; source="queueCapacity"; record=vector,stats; interpolationmode=none); // Registra la capacità della coda
-        //@statistic[QueuesTotCapacity](title="Queue Total Capacity"; source="queuesTotCapacity"; record=vector,stats; interpolationmode=none); // Registra la capacità totale delle code
-        //@statistic[PacketAction](title="Packet Action"; source="packetAction"; record=vector,stats; interpolationmode=none); // Registra l'azione del pacchetto (0: forward, 1: drop, 2: generate feedback)
+    @statistic[QueueLen](title="Queue Length"; source="queueLen"; record=vector,stats; interpolationmode=none); // Registra la lunghezza della coda
+    @statistic[QueuesTotLen](title="Total Queues Length"; source="queuesTotLen"; record=vector,stats; interpolationmode=none); // Registra la lunghezza totale delle code
+    @statistic[QueueCapacity](title="Queue Capacity"; source="queueCapacity"; record=vector,stats; interpolationmode=none); // Registra la capacità della coda
+    @statistic[QueuesTotCapacity](title="Queue Total Capacity"; source="queuesTotCapacity"; record=vector,stats; interpolationmode=none); // Registra la capacità totale delle code
+    @statistic[PacketAction](title="Packet Action"; source="packetAction"; record=vector,stats; interpolationmode=none); // Registra l'azione del pacchetto (0: forward, 1: drop, 2: generate feedback)
         //@statistic[switchSeqNum](record=vector,stats; interpolationmode=none); // Registra il numero di sequenza del pacchetto switch
 
         bool hasStp;

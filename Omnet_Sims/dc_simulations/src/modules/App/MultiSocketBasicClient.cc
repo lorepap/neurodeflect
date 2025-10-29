@@ -305,8 +305,11 @@ void MultiSocketBasicClient::sendRequest(long socket_id)
     emit(requestSentSignal, payload->getRequesterID());
     emit(flowIdSignal, flowId);
     emit(replyLengthsSignal, reply_length);
-    if (is_bursty)
+    // std::cout << "DEBUG is_bursty: " << is_bursty << " at time: " << simTime() << " with flow ID: " << flowId << std::endl;
+    if (is_bursty){
+        std::cout << "Bursty Request Sent at time: " << simTime() << " with query ID: " << payload->getQuery_id() << " and flow ID: " << flowId << std::endl;
         emit(flowEndedQueryIDSignal, payload->getQuery_id());
+    }
     sendPacket(packet);
 }
 

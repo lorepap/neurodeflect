@@ -2928,6 +2928,7 @@ void BouncingIeee8021dRelay::dispatch(Packet *packet, InterfaceEntry *ie)
             // UNIFORM RANDOM deflection: 50% coin-flip to deflect, uniform choice of neighbor if deflecting
             std::bernoulli_distribution coin(uniform_random_deflect_prob);
             bool deflect = coin(rng);
+            totalPackets++;
             EV << "Uniform-random deflect=" << deflect << " (p=" << uniform_random_deflect_prob << ") for packet " << packet->getName() << "\n";
             if (deflect && !bolt_is_packet_src(packet)) {
                 bool tokens_ok = !use_token_bucket_gate
@@ -2943,6 +2944,9 @@ void BouncingIeee8021dRelay::dispatch(Packet *packet, InterfaceEntry *ie)
                     }
                     // Select bounce port and send/delete
                     apply_early_deflection(packet, false, ie);
+                    // debug deflections/s
+                    deflectedPackets++;
+                    print_deflections_per_second();
                     return; // packet handled
                 } else {
                     EV_INFO << "Uniform-random deflection blocked by token bucket gate on port "
@@ -3096,6 +3100,7 @@ void BouncingIeee8021dRelay::dispatch(Packet *packet, InterfaceEntry *ie)
                     // Try to call the queue-specific threshold API directly; if not available,
                     // fall back to overflow check via the MAC.
                     EV << "Entering non-vertigo V2 threshold branch for " << module_path_string << "\n";
+                    totalPackets++;
                     cModule* qmod = getModuleByPath(queue_full_path.c_str());
                     PacketQueue* queue = nullptr;
                     if (qmod) {
@@ -3157,6 +3162,9 @@ void BouncingIeee8021dRelay::dispatch(Packet *packet, InterfaceEntry *ie)
                                 emit(packetActionSignal, 1);
                             }
                             apply_early_deflection(packet, false, ie);
+                            // debug deflections/s
+                            deflectedPackets++;
+                            print_deflections_per_second();
                         }
 
                         return; // handled by apply_early_deflection

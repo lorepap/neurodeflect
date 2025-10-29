@@ -1,0 +1,94 @@
+{
+  "per_switch": {
+    "queue_util": {
+      "mean": {
+        "LeafSpine1G__agg_0__relayUnit": 0.261893388111627,
+        "LeafSpine1G__agg_1__relayUnit": 0.30875100457430016,
+        "LeafSpine1G__agg_2__relayUnit": 0.22143222757838235,
+        "LeafSpine1G__agg_3__relayUnit": 0.25529678679113005,
+        "LeafSpine1G__agg_4__relayUnit": 0.26457047599480815,
+        "LeafSpine1G__agg_5__relayUnit": 0.28998415295500213,
+        "LeafSpine1G__agg_6__relayUnit": 0.26857676045637036,
+        "LeafSpine1G__agg_7__relayUnit": 0.27567745994480725,
+        "LeafSpine1G__spine_0__relayUnit": 0.4439400534692207,
+        "LeafSpine1G__spine_1__relayUnit": 0.4823177088998337,
+        "LeafSpine1G__spine_2__relayUnit": 0.45552093864798193,
+        "LeafSpine1G__spine_3__relayUnit": 0.4325396986507179
+      },
+      "std": {
+        "LeafSpine1G__agg_0__relayUnit": 0.35654508794743456,
+        "LeafSpine1G__agg_1__relayUnit": 0.35793468829446684,
+        "LeafSpine1G__agg_2__relayUnit": 0.3303060142232234,
+        "LeafSpine1G__agg_3__relayUnit": 0.369282623439209,
+        "LeafSpine1G__agg_4__relayUnit": 0.3563335259251004,
+        "LeafSpine1G__agg_5__relayUnit": 0.3656127664697972,
+        "LeafSpine1G__agg_6__relayUnit": 0.3514485209244566,
+        "LeafSpine1G__agg_7__relayUnit": 0.34129127780434915,
+        "LeafSpine1G__spine_0__relayUnit": 0.38712808310947117,
+        "LeafSpine1G__spine_1__relayUnit": 0.3663121329342123,
+        "LeafSpine1G__spine_2__relayUnit": 0.39525658045883955,
+        "LeafSpine1G__spine_3__relayUnit": 0.38685381873230695
+      }
+    },
+    "queues_tot_util": {
+      "mean": {
+        "LeafSpine1G__agg_0__relayUnit": 0.03138129328181032,
+        "LeafSpine1G__agg_1__relayUnit": 0.037635394673293125,
+        "LeafSpine1G__agg_2__relayUnit": 0.028720215371479316,
+        "LeafSpine1G__agg_3__relayUnit": 0.03163337377189817,
+        "LeafSpine1G__agg_4__relayUnit": 0.03198064290585752,
+        "LeafSpine1G__agg_5__relayUnit": 0.0337358191167615,
+        "LeafSpine1G__agg_6__relayUnit": 0.03251578297373243,
+        "LeafSpine1G__agg_7__relayUnit": 0.03312665239497319,
+        "LeafSpine1G__spine_0__relayUnit": 0.2650259057543825,
+        "LeafSpine1G__spine_1__relayUnit": 0.2867590718614954,
+        "LeafSpine1G__spine_2__relayUnit": 0.27847209640295423,
+        "LeafSpine1G__spine_3__relayUnit": 0.26598377543043433
+      },
+      "std": {
+        "LeafSpine1G__agg_0__relayUnit": 0.0356559556363084,
+        "LeafSpine1G__agg_1__relayUnit": 0.03555427583231065,
+        "LeafSpine1G__agg_2__relayUnit": 0.03482016050314855,
+        "LeafSpine1G__agg_3__relayUnit": 0.03761733508281142,
+        "LeafSpine1G__agg_4__relayUnit": 0.03635093497075711,
+        "LeafSpine1G__agg_5__relayUnit": 0.035812196975620214,
+        "LeafSpine1G__agg_6__relayUnit": 0.03526573279994199,
+        "LeafSpine1G__agg_7__relayUnit": 0.032763481485964176,
+        "LeafSpine1G__spine_0__relayUnit": 0.2563284201795778,
+        "LeafSpine1G__spine_1__relayUnit": 0.24248813205823863,
+        "LeafSpine1G__spine_2__relayUnit": 0.26504864112168963,
+        "LeafSpine1G__spine_3__relayUnit": 0.2466519500942491
+      }
+    },
+    "packet_latency": {
+      "mean": {
+        "LeafSpine1G__agg_0__relayUnit": 0.001142781501026039,
+        "LeafSpine1G__agg_1__relayUnit": 0.0011847612468421436,
+        "LeafSpine1G__agg_2__relayUnit": 0.0010804298574564374,
+        "LeafSpine1G__agg_3__relayUnit": 0.0012856673566947305,
+        "LeafSpine1G__agg_4__relayUnit": 0.0013770541193909042,
+        "LeafSpine1G__agg_5__relayUnit": 0.0012078922183337724,
+        "LeafSpine1G__agg_6__relayUnit": 0.001344330911862274,
+        "LeafSpine1G__agg_7__relayUnit": 0.00116392132569841,
+        "LeafSpine1G__spine_0__relayUnit": 0.0012804918117496227,
+        "LeafSpine1G__spine_1__relayUnit": 0.0013186299347337951,
+        "LeafSpine1G__spine_2__relayUnit": 0.0014626937313821577,
+        "LeafSpine1G__spine_3__relayUnit": 0.0012896646796655667
+      },
+      "std": {
+        "LeafSpine1G__agg_0__relayUnit": 0.004147295011159555,
+        "LeafSpine1G__agg_1__relayUnit": 0.00433306769684051,
+        "LeafSpine1G__agg_2__relayUnit": 0.003932978515745835,
+        "LeafSpine1G__agg_3__relayUnit": 0.004290132473047672,
+        "LeafSpine1G__agg_4__relayUnit": 0.00456637852419681,
+        "LeafSpine1G__agg_5__relayUnit": 0.004215200432815275,
+        "LeafSpine1G__agg_6__relayUnit": 0.004510350724502366,
+        "LeafSpine1G__agg_7__relayUnit": 0.004060580810773615,
+        "LeafSpine1G__spine_0__relayUnit": 0.004273797679503606,
+        "LeafSpine1G__spine_1__relayUnit": 0.00441005506737176,
+        "LeafSpine1G__spine_2__relayUnit": 0.0045309365771341766,
+        "LeafSpine1G__spine_3__relayUnit": 0.004249532009380558
+      }
+    }
+  }
+}

@@ -1,0 +1,6 @@
+UID          PID    PPID  C STIME TTY          TIME CMD
+ubuntu   1732428 1727444 99 03:50 pts/7    3-20:28:32 python3 RL_Training/train.py --data-base Omnet_Sims/dc_simulations/simulations/sims/tmp/data --algo iql --out-dir RL_Training/runs/iql_all_100k --steps 100000 --batch-size 4096 --log-interval 1000 --save-interval 10000
+ubuntu   1736585 1732428  1 04:11 pts/7    00:08:56 python3 RL_Training/train.py --data-base Omnet_Sims/dc_simulations/simulations/sims/tmp/data --algo iql --out-dir RL_Training/runs/iql_all_100k --steps 100000 --batch-size 4096 --log-interval 1000 --save-interval 10000
+ubuntu   1736601 1732428  1 04:11 pts/7    00:08:48 python3 RL_Training/train.py --data-base Omnet_Sims/dc_simulations/simulations/sims/tmp/data --algo iql --out-dir RL_Training/runs/iql_all_100k --steps 100000 --batch-size 4096 --log-interval 1000 --save-interval 10000
+ubuntu   1924117 1684967  0 14:16 pts/11   00:00:00 tmux attach -t training
+ubuntu   1927173 1924742  0 14:23 pts/12   00:00:00 ps -af

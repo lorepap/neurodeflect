@@ -98,7 +98,7 @@ simple MultiSocketBasicClient like IApp
         ////@signal[packetReceived](type=inet::Packet);
         ////@signal[connect](type=long);  // 1 for open, -1 for close
     @signal[flowEnded](type=long);
-        ////@signal[flowEndedQueryID]();
+    @signal[flowEndedQueryID]();
     @signal[flowStarted](type=long);
         ////@signal[actualFlowStartedTime]();
     @signal[requestSent](type=long);
@@ -112,7 +112,7 @@ simple MultiSocketBasicClient like IApp
         ////@statistic[numActiveSessions](title="number of active sessions"; source="sum(connect)"; record=max,timeavg,vector; interpolationmode=sample-hold);
         ////@statistic[numSessions](title="total number of sessions"; source="sum(connect+1)/2"; record=last);
     @statistic[flowEndedRequesterID](title="flow ended requester id"; source="flowEnded"; record=vector; interpolationmode=none);
-        ////@statistic[flowEndQueryID](title="flow ended query id"; source="flowEndedQueryID"; record=vector; interpolationmode=none);
+    @statistic[flowEndedQueryID](title="flow ended query id"; source="flowEndedQueryID"; record=vector; interpolationmode=none);
     @statistic[flowStartedRequesterID](title="flow started requester id"; source="flowStarted"; record=vector; interpolationmode=none);
     //@statistic[flowStartedActualTime](title="flow started actual time"; source="actualFlowStartedTime"; record=vector; interpolationmode=none);
     @statistic[requestSentRequesterID](title="request sent requester id"; source="requestSent"; record=vector; interpolationmode=none);

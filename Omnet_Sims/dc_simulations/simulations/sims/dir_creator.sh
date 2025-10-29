@@ -14,7 +14,7 @@ mkdir -p logs
 mkdir -p figs
 mkdir -p extracted_results
 mkdir -p extracted_results/FLOW_ENDED
-# mkdir -p extracted_results/FLOW_ENDED_QUERY_ID
+mkdir -p extracted_results/FLOW_ENDED_QUERY_ID
 mkdir -p extracted_results/FLOW_STARTED
 # mkdir -p extracted_results/FLOW_STARTED_ACTUAL_TIME
 mkdir -p extracted_results/REQUEST_SENT
