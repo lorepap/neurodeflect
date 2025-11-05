@@ -63,7 +63,7 @@ def build_features_and_rewards(
     fe_fill = ts[-1] if len(ts) > 0 else 1.0
     flow_start = pd.to_numeric(flow_start_col, errors="coerce").fillna(fs_fill).to_numpy(dtype=float)
     flow_end = pd.to_numeric(flow_end_col, errors="coerce").fillna(fe_fill).to_numpy(dtype=float)
-    packet_latency = g.get("packet_latency", pd.Series(np.zeros(len(g)))).to_numpy(dtype=float)
+    # packet latency may not be consistently available online; omit from feature set
     ooo = g.get("ooo", pd.Series(np.zeros(len(g)))).to_numpy(dtype=float)
     action = g.get("action_label", pd.Series(np.zeros(len(g)))).to_numpy(dtype=int)
     qid = g.get("query_id", pd.Series(np.full(len(g), np.nan))).to_numpy()
@@ -79,9 +79,7 @@ def build_features_and_rewards(
     # Normalized features
     q_util_z = np.array([zscore_per_switch(switch_id, v, normalizer, "queue_util") for v in queue_util])
     qt_util_z = np.array([zscore_per_switch(switch_id, v, normalizer, "queues_tot_util") for v in queues_tot_util])
-    lat_z = np.array([zscore_per_switch(switch_id, v, normalizer, "packet_latency") for v in packet_latency])
-
-    # [0,1] features
+    # [0,1] features (online-computable)
     # normalized sequence rank within episode
     ranks = (seq_num - np.nanmin(seq_num))
     denom = np.nanmax(seq_num) - np.nanmin(seq_num) + 1e-9
@@ -90,15 +88,6 @@ def build_features_and_rewards(
     # flow age
     flow_dur = (flow_end - flow_start)
     flow_age = np.clip((ts - flow_start) / (flow_dur + 1e-9), 0.0, 1.0)
-
-    # query features
-    query_age = np.where(~np.isnan(qst) & ~np.isnan(qet), np.clip((ts - qst) / ((qet - qst) + 1e-9), 0.0, 1.0), 0.0)
-    # simple incast heuristic: treat as incast if this Flow's qid appears with >1 unique flows in group (fallback)
-    is_incast = np.zeros(n, dtype=float)
-    if not np.all(np.isnan(qid)):
-        # if same query_id appears multiple times in this (switch,flow) it's still 1; global incast requires cross-flow context
-        # fallback: mark incast if query duration is short and queues_tot_util high
-        is_incast = (qt_util_z > np.nanmedian(qt_util_z) + 0.5).astype(float)
 
     # EMA signals
     # convert half-life in microseconds to alpha per step assuming sorted timestamps
@@ -130,7 +119,7 @@ def build_features_and_rewards(
         stacked.append(np.stack(windows, axis=0))  # [n, k]
     hist_stack = np.concatenate(stacked, axis=1)  # [n, k*len(stack_feats)]
 
-    inst = np.stack([q_util_z, qt_util_z, seq_norm, flow_age, lat_z, is_incast, query_age, ooo_recent, deflect_ema], axis=1)
+    inst = np.stack([q_util_z, qt_util_z, seq_norm, flow_age, ooo_recent, deflect_ema], axis=1)
     X = np.concatenate([inst, hist_stack], axis=1)
 
     # actions
@@ -139,7 +128,7 @@ def build_features_and_rewards(
     # rewards
     w_q, w_l, w_o, w_d, w_F = reward_weights["w_q"], reward_weights["w_l"], reward_weights["w_o"], reward_weights["w_d"], reward_weights["w_F"]
     step_r = - (w_q * np.nan_to_num(queue_util, nan=0.0)
-                + w_l * np.nan_to_num((lat_z - np.nanmin(lat_z)) / (np.nanmax(lat_z) - np.nanmin(lat_z) + 1e-9), nan=0.0)
+                + w_l * np.nan_to_num(queues_tot_util, nan=0.0)
                 + w_o * (ooo > 0).astype(float))
     step_r = step_r - w_d * (A == 1).astype(float)
 

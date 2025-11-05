@@ -1,14 +1,17 @@
 from __future__ import annotations
 
 import json
-from dataclasses import dataclass
+import re
+from datetime import datetime
 from pathlib import Path
-from typing import Dict, List, Tuple, Any
+from typing import Any, Dict, List, Tuple
 
 import numpy as np
 import pandas as pd
 
 from .features import build_features_and_rewards, compute_normalization
+
+RUN_TIMESTAMP_PATTERN = re.compile(r"(?P<date>\d{8})-(?P<time>\d{2}:\d{2}:\d{2})")
 
 
 def infer_policy_label_from_path(path: Path) -> str:
@@ -20,6 +23,51 @@ def infer_policy_label_from_path(path: Path) -> str:
     return name
 
 
+def extract_run_id_from_path(path: Path) -> str | None:
+    stem = path.stem
+    if "__" not in stem:
+        return None
+    return stem.split("__", 1)[0]
+
+
+def parse_timestamp_from_run(run_id: str) -> datetime | None:
+    match = RUN_TIMESTAMP_PATTERN.search(run_id)
+    if not match:
+        return None
+    ts_str = f"{match.group('date')}-{match.group('time')}"
+    try:
+        return datetime.strptime(ts_str, "%Y%m%d-%H:%M:%S")
+    except ValueError:
+        return None
+
+
+def select_latest_run_files(files: List[Path]) -> List[Path]:
+    runs: Dict[str, List[Path]] = {}
+    run_ts: Dict[str, datetime | None] = {}
+    unassigned: List[Path] = []
+    for p in files:
+        run_id = extract_run_id_from_path(p)
+        if run_id is None:
+            unassigned.append(p)
+            continue
+        runs.setdefault(run_id, []).append(p)
+        if run_id not in run_ts:
+            run_ts[run_id] = parse_timestamp_from_run(run_id)
+    if not runs:
+        return files
+    latest_run_id = max(
+        runs.keys(),
+        key=lambda rid: (
+            run_ts.get(rid) or datetime.min,
+            rid,
+        ),
+    )
+    selected = sorted(runs[latest_run_id])
+    if unassigned:
+        selected.extend(sorted(unassigned))
+    return selected
+
+
 def read_dataset_dirs(data_dirs: List[Path], max_files: int | None = None, row_limit_per_file: int | None = None) -> Tuple[pd.DataFrame, Dict[str, Any]]:
     frames: List[pd.DataFrame] = []
     policy_labels: List[str] = []
@@ -29,6 +77,8 @@ def read_dataset_dirs(data_dirs: List[Path], max_files: int | None = None, row_l
         if not csvs:
             # Allow nested structure
             csvs = sorted(d.rglob("*.csv"))
+        if csvs:
+            csvs = select_latest_run_files(csvs)
         if max_files is not None and len(csvs) > max_files:
             csvs = csvs[:max_files]
         if not csvs:

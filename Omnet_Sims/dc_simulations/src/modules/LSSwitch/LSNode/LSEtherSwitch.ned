@@ -90,8 +90,11 @@ module LSEtherSwitch
         // RL-based deflection policy
         bool bounce_with_rl_policy = default(false);
         string rl_model_path = default("");
-        string rl_state_mean = default("0.0,0.0,0.0,0.0,0.0,0.0");
-        string rl_state_std = default("1.0,1.0,1.0,1.0,1.0,1.0");
+        int rl_history_length = default(4);
+        int rl_flow_expected_packets = default(1000);
+        double rl_flow_age_tau_us = default(500);
+        double rl_ema_half_life_us = default(80);
+        double rl_incast_threshold = default(0.5);
         
         // incremental deployment
         bool incremental_deployment = default(false);
@@ -201,4 +204,3 @@ module LSEtherSwitch
             stp.relayOut --> up.in++; // relayUnit.stpIn;
         }
 }
-

@@ -31,8 +31,11 @@
 #include "../pFabric/pFabric.h"
 #include "../V2/buffer/V2PacketBuffer.h"
 #include "../V2/V2PIFOBoltQueue.h"
-#include "unordered_map"
-#include "unordered_set"
+#include <unordered_map>
+#include <unordered_set>
+#include <deque>
+#include <array>
+#include <cmath>
 #include "omnetpp/simtime_t.h"
 
 // PyTorch includes for RL model inference
@@ -157,12 +160,42 @@ class BouncingIeee8021dRelay : public LayeredProtocolBase
     double sel_reaction_alpha;
 
     // RL-based deflection policy
-    bool bounce_with_rl_policy;  // Enable RL-based deflection decisions
-    std::string rl_model_path;   // Path to the trained PyTorch model
-    std::vector<double> rl_state_mean;  // State normalization means
-    std::vector<double> rl_state_std;   // State normalization standard deviations
+    bool bounce_with_rl_policy;         // Enable RL-based deflection decisions
+    std::string rl_model_path;          // Path to the trained PyTorch model
     torch::jit::script::Module rl_model;  // Loaded PyTorch model
-    bool rl_model_loaded;        // Track if model is successfully loaded
+    bool rl_model_loaded;               // Track if model is successfully loaded
+
+    struct RunningStats {
+        uint64_t count = 0;
+        double mean = 0.0;
+        double m2 = 0.0;
+        void add(double x);
+        double stddev() const;
+    };
+
+    struct RLFlowState {
+        bool initialized = false;
+        simtime_t firstSeen = SIMTIME_ZERO;
+        simtime_t lastSeen = SIMTIME_ZERO;
+        uint64_t packetCount = 0;
+        uint64_t lastSeq = 0;
+        double deflectEma = 0.0;
+        double oooEma = 0.0;
+        double lastAlpha = 0.0;
+        std::deque<std::array<double, 4>> history;
+    };
+
+    // RL feature configuration and state
+    int rl_history_length = 4;
+    int rl_expected_flow_packets = 1000;
+    double rl_flow_age_tau_us = 500.0;   // microseconds
+    double rl_flow_age_tau_s = 5e-4;     // seconds (derived)
+    double rl_ema_half_life_us = 80.0;
+    double rl_default_dt_us = 80.0;
+
+    std::unordered_map<size_t, RLFlowState> rl_flow_states;
+    std::unordered_map<std::string, RunningStats> rl_queue_util_stats;
+    std::unordered_map<std::string, RunningStats> rl_total_util_stats;
 
     // Deflection statistics
     unsigned long totalPackets = 0;
@@ -315,8 +348,21 @@ class BouncingIeee8021dRelay : public LayeredProtocolBase
     
     // RL-based deflection methods
     void load_rl_model();
-    std::vector<double> extract_rl_state_features(Packet *packet, InterfaceEntry *ie);
+    std::vector<double> extract_rl_state_features(Packet *packet, InterfaceEntry *ie, size_t &flowKey);
     bool get_rl_deflection_decision(Packet *packet, InterfaceEntry *ie);
+    double compute_alpha(double dt_us) const;
+    std::string make_queue_key(const std::string& switchName, int interfaceIndex) const;
+    RunningStats& access_queue_stats(const std::string& switchName, int interfaceIndex);
+    RunningStats& access_total_stats(const std::string& switchName);
+    RLFlowState& access_flow_state(size_t flowKey, simtime_t now, uint64_t sequenceNo);
+    void update_flow_state_post_action(size_t flowKey, bool deflected);
+    std::vector<double> build_history_vector(const RLFlowState& state) const;
+    double compute_seq_norm(const RLFlowState& state) const;
+    double compute_flow_age_norm(const RLFlowState& state, simtime_t now) const;
+    double compute_queue_util_z(const std::string& switchName, int interfaceIndex, double value);
+    double compute_total_util_z(const std::string& switchName, double value);
+    int get_optional_int_param(const char *name, int defaultValue) const;
+    double get_optional_double_param(const char *name, double defaultValue) const;
     
     void initialize_token_buckets();
     int resolve_token_bucket_index(InterfaceEntry *port) const;

@@ -32,6 +32,7 @@ Omnet_Sims/dc_simulations/simulations/Vertigo_Sims/figs/
 */results*/
 */extracted_results*/
 */results_1G*/
+*/results_1G/*
 */results_backup*/
 */logs/
 */figs/
@@ -50,3 +51,6 @@ core.*
 */models/
 */experiments/
 */logs/
+*/runs
+*.png
+*/plots/*.png

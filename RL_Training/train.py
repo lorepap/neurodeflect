@@ -16,7 +16,6 @@ from models.networks import make_nets
 from algos.iql import IQL
 from algos.cql import CQL
 from algos.awr import AWR
-from eval.fqe import run_fqe
 from eval.metrics import compute_behavior_kl
 
 
@@ -37,7 +36,7 @@ def parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser(description="Offline RL training for per-switch deflection policies",
                                 formatter_class=argparse.ArgumentDefaultsHelpFormatter)
     p.add_argument("--data-dirs", nargs='+', required=False, default=[], help="Dataset directories containing per-switch CSVs (optional if --data-base is provided)")
-    p.add_argument("--data-base", type=str, default="Omnet_Sims/dc_simulations/simulations/sims/tmp/data", help="Base directory where data_1G_<policy> folders live")
+    p.add_argument("--data-base", type=str, default="/home/ubuntu/practical_deflection/Omnet_Sims/dc_simulations/simulations/sims/tmp/data", help="Base directory where data_1G_<policy> folders live")
     p.add_argument("--algo", choices=list(ALGOS.keys()), default="iql")
     p.add_argument("--out-dir", required=True, help="Output directory for logs and checkpoints")
     p.add_argument("--steps", type=int, default=200000)
@@ -52,8 +51,6 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--cql-alpha", type=float, default=0.5)
     p.add_argument("--log-interval", type=int, default=1000)
     p.add_argument("--save-interval", type=int, default=10000)
-    p.add_argument("--fqe-interval", type=int, default=20000)
-    p.add_argument("--fqe-eval", action="store_true", help="Run FQE at end even if steps=0")
     p.add_argument("--device", type=str, default="auto", help="cpu, cuda, or auto")
     p.add_argument("--amp", action="store_true", help="Enable mixed precision on CUDA")
     p.add_argument("--resume", type=str, default="", help="Path to checkpoint to resume from (continues for --steps more updates)")
@@ -62,9 +59,9 @@ def parse_args() -> argparse.Namespace:
 
     # Reward weights
     p.add_argument("--w-q", type=float, default=1.0)
-    p.add_argument("--w-l", type=float, default=0.3)
+    p.add_argument("--w-l", type=float, default=0.3, help="Penalty weight for total queue utilization")
     p.add_argument("--w-o", type=float, default=0.2)
-    p.add_argument("--w-d", type=float, default=0.05)
+    p.add_argument("--w-d", type=float, default=0.3)
     p.add_argument("--w-f", type=float, default=0.5, help="Terminal FCT shaping weight")
 
     # Feature/history config
@@ -100,9 +97,9 @@ def main():
         "vertigo",
     ]
     if args.data_dirs:
-        data_dirs = [Path(d) for d in args.data_dirs]
+        data_dirs = [Path(d).expanduser().resolve() for d in args.data_dirs]
     else:
-        base = Path(args.data_base)
+        base = Path(args.data_base).expanduser().resolve()
         expanded = [base / f"data_1G_{p}" for p in POLICY_NAMES]
         data_dirs = [p for p in expanded if p.exists()]
         if not data_dirs:
@@ -218,20 +215,8 @@ def main():
                 }
                 torch.save(ckpt, out_dir / f"checkpoint_{global_step}.pt")
 
-            if args.fqe_interval > 0 and step % args.fqe_interval == 0:
-                print("[train] Running periodic FQE…")
-                fqe_res = run_fqe(ds, nets['actor'], gamma=args.gamma, device=device, steps=50000)
-                with (out_dir / "fqe_eval.json").open("w") as f:
-                    json.dump(fqe_res, f, indent=2)
-
             if step >= args.steps:
                 break
-
-    if args.fqe_eval or args.steps == 0:
-        print("[train] Final FQE evaluation…")
-        fqe_res = run_fqe(ds, nets['actor'], gamma=args.gamma, device=device, steps=100000)
-        with (out_dir / "fqe_eval.json").open("w") as f:
-            json.dump(fqe_res, f, indent=2)
 
 
 if __name__ == "__main__":

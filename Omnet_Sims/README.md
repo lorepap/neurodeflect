@@ -78,6 +78,28 @@ cd practical_deflection/Omnet_Sims/
 bash build.sh
 ```
 
+### Step 4.5: Installing libtorch (C++ API for PyTorch)
+
+Some components (e.g., RL-driven experiments) compile against the C++ distribution of PyTorch. We validated the workflow with libtorch **2.0.1**. If you already have that version available, skip this step; otherwise:
+
+```
+cd ~
+wget https://download.pytorch.org/libtorch/cpu/libtorch-cxx11-abi-shared-with-deps-2.0.1%2Bcpu.zip
+unzip libtorch-cxx11-abi-shared-with-deps-2.0.1+cpu.zip
+```
+
+To make the toolkit visible to CMake-based builds, set the prefix path (add the line below to `~/.bashrc` if you want it to persist):
+
+```
+export CMAKE_PREFIX_PATH="${CMAKE_PREFIX_PATH}:$HOME/libtorch"
+```
+
+You can verify the install and version with:
+
+```
+cat $HOME/libtorch/share/cmake/Torch/TorchConfigVersion.cmake
+```
+
 If the following error occurs:
 
 ```
