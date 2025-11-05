@@ -30,10 +30,15 @@
 #include "BouncingIeee8021dRelay.h"
 #include "inet/applications/tcpapp/GenericAppMsg_m.h"
 #include "inet/common/FlowKey.h"
+#include "inet/common/packet/chunk/SliceChunk.h"
+#include <limits>
+#include <iterator>
 #include <sqlite3.h>
 #include <sstream>
 #include <vector>
 #include <algorithm>
+#include <iostream>
+#include <iomanip>
 
 using namespace inet;
 
@@ -245,33 +250,28 @@ void BouncingIeee8021dRelay::initialize(int stage)
         bounce_with_rl_policy = getAncestorPar("bounce_with_rl_policy");
         if (bounce_with_rl_policy) {
             rl_model_path = std::string(getAncestorPar("rl_model_path"));
-            
-            // Parse normalization parameters from string
-            std::string rl_state_mean_str = std::string(getAncestorPar("rl_state_mean"));
-            std::string rl_state_std_str = std::string(getAncestorPar("rl_state_std"));
-            
-            // Parse comma-separated values for state mean
-            std::stringstream mean_ss(rl_state_mean_str);
-            std::string mean_item;
-            while (std::getline(mean_ss, mean_item, ',')) {
-                rl_state_mean.push_back(std::stod(mean_item));
-            }
-            
-            // Parse comma-separated values for state std
-            std::stringstream std_ss(rl_state_std_str);
-            std::string std_item;
-            while (std::getline(std_ss, std_item, ',')) {
-                rl_state_std.push_back(std::stod(std_item));
-            }
-            
-            // Validate normalization parameters (3 features: queue_utilization, total_occupancy, ttl_priority)
-            if (rl_state_mean.size() != 3 || rl_state_std.size() != 3) {
-                throw cRuntimeError("RL state normalization parameters must have 3 values each (queue_utilization, total_occupancy, ttl_priority)");
-            }
-            
-            // Load the RL model
+
+            rl_history_length = std::max(1, get_optional_int_param("rl_history_length", rl_history_length));
+            rl_expected_flow_packets = std::max(1, get_optional_int_param("rl_flow_expected_packets", rl_expected_flow_packets));
+            rl_ema_half_life_us = std::max(1e-6, get_optional_double_param("rl_ema_half_life_us", rl_ema_half_life_us));
+            rl_default_dt_us = rl_ema_half_life_us;
+            rl_flow_age_tau_us = std::max(1.0, get_optional_double_param("rl_flow_age_tau_us", rl_flow_age_tau_us));
+            rl_flow_age_tau_s = rl_flow_age_tau_us * 1e-6;
+
+            rl_flow_states.clear();
+            rl_queue_util_stats.clear();
+            rl_total_util_stats.clear();
+
             rl_model_loaded = false;
             load_rl_model();
+
+            EV_INFO << "RL policy enabled. Model=" << rl_model_path
+                    << " feature_dim=" << (6 + rl_history_length * 4)
+                    << " history_len=" << rl_history_length
+                    << " expected_flow_packets=" << rl_expected_flow_packets
+                    << " flow_age_tau_us=" << rl_flow_age_tau_us
+                    << " ema_half_life_us=" << rl_ema_half_life_us
+                    << endl;
         }
 
         if (bounce_randomly_v2 && use_bolt_with_vertigo_queue) {
@@ -3490,95 +3490,190 @@ void BouncingIeee8021dRelay::load_rl_model()
     }
 }
 
-std::vector<double> BouncingIeee8021dRelay::extract_rl_state_features(Packet *packet, InterfaceEntry *ie)
+std::vector<double> BouncingIeee8021dRelay::extract_rl_state_features(Packet *packet, InterfaceEntry *ie, size_t &flowKeyOut)
 {
-    // State space matches RL training environment: 3 features
-    // [queue_utilization, total_occupancy, ttl_priority]
-    std::vector<double> state_features(3, 0.0);
-    
+    std::vector<double> features;
+    flowKeyOut = 0;
+
+    if (packet == nullptr || ie == nullptr) {
+        return features;
+    }
+
     try {
-        // Get the queue information for the outgoing interface
-        std::string switch_name = getParentModule()->getFullName();
-        std::string module_path_string = switch_name + ".eth[" + std::to_string(ie->getIndex()) + "].mac";
-        
-        // Use AugmentedEtherMac to get queue information
+        const std::string switch_name = getParentModule()->getFullName();
+        const int interface_index = ie->getIndex();
+
+        std::string module_path_string = switch_name + ".eth[" + std::to_string(interface_index) + "].mac";
         AugmentedEtherMac *mac = check_and_cast<AugmentedEtherMac *>(getModuleByPath(module_path_string.c_str()));
-        std::string queue_full_path = module_path_string + ".queue";
-        
-        if (send_header_of_dropped_packet_to_receiver) {
-            queue_full_path = module_path_string + ".queue.mainQueue";
-        }
-        
-        // Feature 0: Queue utilization (occupancy / capacity)
-        // This matches the RL environment: queue_utilization = occupancy / capacity
-        double queue_occupancy = mac->get_queue_occupancy(queue_full_path);  // in bytes
-        double queue_capacity = mac->get_queue_capacity(queue_full_path);   // in bytes
-        state_features[0] = (queue_capacity > 0) ? (queue_occupancy / queue_capacity) : 0.0;
-        
-        EV << "RL_STATE_DEBUG: Queue " << ie->getIndex() << " - occupancy: " << queue_occupancy 
-           << " bytes, capacity: " << queue_capacity << " bytes, utilization: " << state_features[0] << endl;
-        
-        // Feature 1: Total occupancy (raw value in bytes)
-        // This matches the RL environment: total_occupancy (absolute value, not normalized)
+        std::string queue_path = module_path_string + ".queue";
+        if (send_header_of_dropped_packet_to_receiver)
+            queue_path += ".mainQueue";
+
+        double queue_occupancy = 0.0;
+        double queue_capacity = 0.0;
+        try { queue_occupancy = mac->get_queue_occupancy(queue_path); } catch (...) { queue_occupancy = 0.0; }
+        try { queue_capacity = mac->get_queue_capacity(queue_path); } catch (...) { queue_capacity = 0.0; }
+
+        double queue_util = (queue_capacity > 0.0) ? (queue_occupancy / queue_capacity) : 0.0;
+        double queue_util_z = compute_queue_util_z(switch_name, interface_index, queue_util);
+
         double total_occupancy = 0.0;
-        
-        for (int i = 0; i < ifTable->getNumInterfaces(); i++) {
-            InterfaceEntry *current_ie = ifTable->getInterface(i);
-            if (!current_ie->isLoopback()) {
-                std::string curr_module_path = switch_name + ".eth[" + std::to_string(current_ie->getIndex()) + "].mac";
-                AugmentedEtherMac *curr_mac = check_and_cast<AugmentedEtherMac *>(getModuleByPath(curr_module_path.c_str()));
-                std::string curr_queue_path = curr_module_path + ".queue";
-                
-                if (send_header_of_dropped_packet_to_receiver) {
-                    curr_queue_path = curr_module_path + ".queue.mainQueue";
-                }
-                
-                total_occupancy += curr_mac->get_queue_occupancy(curr_queue_path);
-            }
+        double total_capacity = 0.0;
+        for (auto *mac_iface : macList) {
+            std::string iface_queue_path = mac_iface->getFullPath() + ".queue";
+            if (send_header_of_dropped_packet_to_receiver)
+                iface_queue_path += ".mainQueue";
+
+            double occ = 0.0;
+            double cap = 0.0;
+            try { occ = mac_iface->get_queue_occupancy(iface_queue_path); } catch (...) { occ = 0.0; }
+            try { cap = mac_iface->get_queue_capacity(iface_queue_path); } catch (...) { cap = 0.0; }
+            total_occupancy += occ;
+            total_capacity += cap;
         }
-        state_features[1] = total_occupancy;
-        
-        EV << "RL_STATE_DEBUG: Total occupancy across all interfaces: " << total_occupancy << " bytes" << endl;
-        
-        // Feature 2: TTL priority (packet urgency - higher value = more hops traveled)
-        // This matches the RL environment: ttl_priority = (250 - ttl) / 250.0
-        const auto& frame = packet->peekAtFront<EthernetMacHeader>();
-        b packet_position = packet->getFrontOffset();
+
+        double total_util = (total_capacity > 0.0) ? (total_occupancy / total_capacity) : 0.0;
+        double total_util_z = compute_total_util_z(switch_name, total_util);
+
+        simtime_t now = simTime();
+        uint64_t sequence_no = 0;
+        double ttl_priority = 0.0;
+        size_t flow_hash = 0;
+
+        // Extract headers to compute TTL, sequence number, and flow hash
+        b previous_position = packet->getFrontOffset();
         packet->setFrontIteratorPosition(b(0));
-        
-        // Skip physical and MAC headers to get to IP header
         auto phy_header = packet->removeAtFront<EthernetPhyHeader>();
         auto mac_header = packet->removeAtFront<EthernetMacHeader>();
-        
-        if (packet->getDataLength() > b(0)) {
-            auto ipv4_header = packet->removeAtFront<Ipv4Header>();
-            if (ipv4_header) {
-                double ttl = double(ipv4_header->getTimeToLive());
-                // TTL priority: higher value means packet has traveled more hops (more urgent)
-                state_features[2] = (250.0 - ttl) / 250.0;
-                state_features[2] = std::min(1.0, std::max(0.0, state_features[2]));
-                
-                EV << "RL_STATE_DEBUG: TTL=" << ttl << ", TTL priority=" << state_features[2] << endl;
-            }
-            packet->insertAtFront(ipv4_header);
+        auto ipv4_header = packet->removeAtFront<Ipv4Header>();
+
+        if (ipv4_header != nullptr) {
+            double ttl = static_cast<double>(ipv4_header->getTimeToLive());
+            ttl_priority = std::clamp((static_cast<double>(TTL) - ttl) / static_cast<double>(TTL), 0.0, 1.0);
         }
-        
-        // Restore packet structure
+
+        bool has_tcp = false;
+        if (packet->getDataLength() > b(0)) {
+            try {
+                auto tcp_header = packet->removeAtFront<tcp::TcpHeader>();
+                auto slice_chunk = packet->removeAtFront<SliceChunk>();
+                auto main_chunk = slice_chunk->getChunk();
+                has_tcp = true;
+
+                sequence_no = static_cast<uint64_t>(tcp_header->getSequenceNo());
+                uint16_t srcPort = tcp_header->getSrcPort();
+                uint16_t dstPort = tcp_header->getDestPort();
+                uint32_t srcAddr = ipv4_header ? ipv4_header->getSourceAddress().toIpv4().getInt() : 0;
+                uint32_t dstAddr = ipv4_header ? ipv4_header->getDestinationAddress().toIpv4().getInt() : 0;
+
+                FlowKey flowKeyStruct{0, srcPort, dstPort, srcAddr, dstAddr};
+                flow_hash = flowKeyStruct.getSafeHash();
+
+                packet->insertAtFront(slice_chunk);
+                packet->insertAtFront(tcp_header);
+            } catch (...) {
+                has_tcp = false;
+                sequence_no = 0;
+            }
+        }
+
+        packet->insertAtFront(ipv4_header);
         packet->insertAtFront(mac_header);
         packet->insertAtFront(phy_header);
-        packet->setFrontIteratorPosition(packet_position);
-        
-        EV_DEBUG << "RL State Features: queue_util=" << state_features[0] 
-                 << ", total_occupancy=" << state_features[1] 
-                 << ", ttl_priority=" << state_features[2] << endl;
-        
+        packet->setFrontIteratorPosition(previous_position);
+
+        if (!has_tcp || flow_hash == 0) {
+            size_t fallback = std::hash<std::string>{}(switch_name);
+            fallback ^= (std::hash<int>{}(interface_index) << 1);
+            fallback ^= std::hash<long>{}(packet->getTreeId()) << 1;
+            flow_hash = fallback;
+        }
+        flowKeyOut = flow_hash;
+
+        (void)ttl_priority; // retained for potential feature extensions
+
+        RLFlowState &flow_state = access_flow_state(flow_hash, now, sequence_no);
+
+        double seq_norm = compute_seq_norm(flow_state);
+        double flow_age_norm = compute_flow_age_norm(flow_state, now);
+        double ooo_recent = flow_state.oooEma;
+        double deflect_ema = flow_state.deflectEma;
+
+        flow_state.history.push_back({queue_util_z, total_util_z, deflect_ema, ooo_recent});
+        while ((int)flow_state.history.size() > rl_history_length)
+            flow_state.history.pop_front();
+
+        std::vector<double> history_flat = build_history_vector(flow_state);
+
+        features.reserve(6 + history_flat.size());
+        features.push_back(queue_util_z);
+        features.push_back(total_util_z);
+        features.push_back(seq_norm);
+        features.push_back(flow_age_norm);
+        features.push_back(ooo_recent);
+        features.push_back(deflect_ema);
+        features.insert(features.end(), history_flat.begin(), history_flat.end());
+
+        static const char* baseFeatureNames[] = {
+            "queue_util_z",
+            "total_util_z",
+            "seq_norm",
+            "flow_age_norm",
+            "ooo_recent",
+            "deflect_ema"
+        };
+
+        std::cout << std::fixed << std::setprecision(6);
+        size_t base_count = sizeof(baseFeatureNames) / sizeof(baseFeatureNames[0]);
+        for (size_t idx = 0; idx < base_count && idx < features.size(); ++idx) {
+            std::cout << "[RL_FEATURE] switch=" << switch_name
+                      << " port=" << interface_index
+                      << " flowKey=" << flow_hash
+                      << " feature=" << baseFeatureNames[idx]
+                      << " value=" << features[idx] << std::endl;
+        }
+
+        size_t history_size = history_flat.size();
+        if (history_size > 0) {
+            size_t history_offset = features.size() - history_size;
+            for (int h = 0; h < rl_history_length; ++h) {
+                size_t base = history_offset + h * 4;
+                if (base + 3 >= features.size())
+                    break;
+                std::cout << "[RL_FEATURE] switch=" << switch_name
+                          << " port=" << interface_index
+                          << " flowKey=" << flow_hash
+                          << " feature=history_" << h << "_queue_util_z"
+                          << " value=" << features[base] << std::endl;
+                std::cout << "[RL_FEATURE] switch=" << switch_name
+                          << " port=" << interface_index
+                          << " flowKey=" << flow_hash
+                          << " feature=history_" << h << "_total_util_z"
+                          << " value=" << features[base + 1] << std::endl;
+                std::cout << "[RL_FEATURE] switch=" << switch_name
+                          << " port=" << interface_index
+                          << " flowKey=" << flow_hash
+                          << " feature=history_" << h << "_deflect_ema"
+                          << " value=" << features[base + 2] << std::endl;
+                std::cout << "[RL_FEATURE] switch=" << switch_name
+                          << " port=" << interface_index
+                          << " flowKey=" << flow_hash
+                          << " feature=history_" << h << "_ooo_recent"
+                          << " value=" << features[base + 3] << std::endl;
+            }
+        }
+
+        EV_DEBUG << "RL State Features (size=" << features.size() << "): queue_z=" << queue_util_z
+                 << ", total_z=" << total_util_z << ", seq_norm=" << seq_norm
+                 << ", flow_age=" << flow_age_norm << ", ooo_recent=" << ooo_recent
+                 << ", deflect_ema=" << deflect_ema << endl;
+
     } catch (const std::exception& e) {
         EV_ERROR << "Error extracting RL state features: " << e.what() << endl;
-        // Return zero state in case of error
-        std::fill(state_features.begin(), state_features.end(), 0.0);
+        features.clear();
     }
-    
-    return state_features;
+
+    return features;
 }
 
 bool BouncingIeee8021dRelay::get_rl_deflection_decision(Packet *packet, InterfaceEntry *ie)
@@ -3587,62 +3682,222 @@ bool BouncingIeee8021dRelay::get_rl_deflection_decision(Packet *packet, Interfac
         EV_ERROR << "RL model not loaded, cannot make deflection decision" << endl;
         return false;  // Default to forward
     }
-    
+
     try {
-        // Extract state features (3 features: queue_utilization, total_occupancy, ttl_priority)
-        std::vector<double> raw_state = extract_rl_state_features(packet, ie);
-        
-        // Log raw state features for debugging
-        EV << "RL_DEBUG: Raw state features: [" 
-           << raw_state[0] << ", " << raw_state[1] << ", " << raw_state[2] << "]" << endl;
-        
-        // Normalize state features (using 3 features instead of 6)
-        std::vector<double> normalized_state(3);
-        for (size_t i = 0; i < 3; i++) {
-            if (rl_state_std[i] > 0) {
-                normalized_state[i] = (raw_state[i] - rl_state_mean[i]) / rl_state_std[i];
-            } else {
-                normalized_state[i] = raw_state[i] - rl_state_mean[i];
-            }
+        size_t flowKey = 0;
+        std::vector<double> state_vector = extract_rl_state_features(packet, ie, flowKey);
+        if (state_vector.empty()) {
+            EV_WARN << "RL feature vector empty, defaulting to forward" << endl;
+            return false;
         }
-        
-        // Log normalization parameters and normalized state
-        EV << "RL_DEBUG: Normalization params - mean: [" 
-           << rl_state_mean[0] << ", " << rl_state_mean[1] << ", " << rl_state_mean[2] 
-           << "], std: [" << rl_state_std[0] << ", " << rl_state_std[1] << ", " << rl_state_std[2] << "]" << endl;
-        EV << "RL_DEBUG: Normalized state: [" 
-           << normalized_state[0] << ", " << normalized_state[1] << ", " << normalized_state[2] << "]" << endl;
-        
-        // Convert to PyTorch tensor
-        torch::Tensor state_tensor = torch::tensor(normalized_state, torch::kFloat32).unsqueeze(0);
-        
-        // Get model prediction (already returns action probabilities)
+
+        torch::Tensor state_tensor = torch::tensor(state_vector, torch::TensorOptions().dtype(torch::kFloat32)).unsqueeze(0);
         std::vector<torch::jit::IValue> inputs;
-        inputs.push_back(state_tensor);
-        
+        inputs.emplace_back(state_tensor);
+
         torch::Tensor action_probs = rl_model.forward(inputs).toTensor();
-        
-        // Log action probabilities
-        auto action_probs_accessor = action_probs.accessor<float, 2>();
-        EV << "RL_DEBUG: Action probabilities - Forward: " << action_probs_accessor[0][0] 
-           << ", Deflect: " << action_probs_accessor[0][1] << endl;
-        
-        // Get the action with highest probability
+        auto probs = action_probs.accessor<float, 2>();
+        EV << "RL_DEBUG: Action probabilities - Forward: " << probs[0][0]
+           << ", Deflect: " << probs[0][1]
+           << " (feature_dim=" << state_vector.size() << ")" << endl;
+
         torch::Tensor max_action = torch::argmax(action_probs, 1);
         int action = max_action.item<int>();
-        
-        // Action 0 = forward, Action 1 = deflect
         bool should_deflect = (action == 1);
-        
-        EV << "RL_DEBUG: Final decision: " << (should_deflect ? "DEFLECT" : "FORWARD") 
+
+        update_flow_state_post_action(flowKey, should_deflect);
+
+        EV << "RL_DEBUG: Final decision: " << (should_deflect ? "DEFLECT" : "FORWARD")
            << " (action=" << action << ")" << endl;
-        
+
         return should_deflect;
-        
+
     } catch (const std::exception& e) {
         EV_ERROR << "Error in RL deflection decision: " << e.what() << endl;
         return false;  // Default to forward in case of error
     }
+}
+
+// ---------------- RL helper utilities -----------------
+
+void BouncingIeee8021dRelay::RunningStats::add(double x)
+{
+    count++;
+    double delta = x - mean;
+    mean += delta / count;
+    double delta2 = x - mean;
+    m2 += delta * delta2;
+}
+
+double BouncingIeee8021dRelay::RunningStats::stddev() const
+{
+    if (count < 2)
+        return 1.0;
+    double variance = m2 / (count - 1);
+    if (variance <= 0.0)
+        return 1.0;
+    return std::sqrt(variance);
+}
+
+double BouncingIeee8021dRelay::compute_alpha(double dt_us) const
+{
+    double half_life = std::max(rl_ema_half_life_us, 1e-6);
+    double effective_dt = (dt_us > 0.0) ? dt_us : rl_default_dt_us;
+    return 1.0 - std::exp(-effective_dt / half_life);
+}
+
+std::string BouncingIeee8021dRelay::make_queue_key(const std::string& switchName, int interfaceIndex) const
+{
+    return switchName + ":" + std::to_string(interfaceIndex);
+}
+
+BouncingIeee8021dRelay::RunningStats& BouncingIeee8021dRelay::access_queue_stats(const std::string& switchName, int interfaceIndex)
+{
+    std::string key = make_queue_key(switchName, interfaceIndex);
+    return rl_queue_util_stats[key];
+}
+
+BouncingIeee8021dRelay::RunningStats& BouncingIeee8021dRelay::access_total_stats(const std::string& switchName)
+{
+    return rl_total_util_stats[switchName];
+}
+
+BouncingIeee8021dRelay::RLFlowState& BouncingIeee8021dRelay::access_flow_state(size_t flowKey, simtime_t now, uint64_t sequenceNo)
+{
+    RLFlowState &state = rl_flow_states[flowKey];
+    if (!state.initialized) {
+        state.initialized = true;
+        state.firstSeen = now;
+        state.lastSeen = now;
+        state.lastSeq = sequenceNo;
+        state.packetCount = 0;
+        state.deflectEma = 0.0;
+        state.oooEma = 0.0;
+        state.history.clear();
+        state.lastAlpha = compute_alpha(rl_default_dt_us);
+    }
+
+    double dt_us = (now - state.lastSeen).dbl() * 1e6;
+    double alpha = compute_alpha(dt_us);
+    state.lastAlpha = alpha;
+
+    double ooo_indicator = 0.0;
+    if (state.packetCount > 0 && sequenceNo > 0 && sequenceNo < state.lastSeq)
+        ooo_indicator = 1.0;
+
+    state.oooEma = alpha * ooo_indicator + (1.0 - alpha) * state.oooEma;
+
+    if (sequenceNo > 0)
+        state.lastSeq = sequenceNo;
+
+    state.lastSeen = now;
+    state.packetCount += 1;
+
+    return state;
+}
+
+void BouncingIeee8021dRelay::update_flow_state_post_action(size_t flowKey, bool deflected)
+{
+    auto it = rl_flow_states.find(flowKey);
+    if (it == rl_flow_states.end())
+        return;
+
+    RLFlowState &state = it->second;
+    double alpha = (state.lastAlpha > 0.0) ? state.lastAlpha : compute_alpha(rl_default_dt_us);
+    double indicator = deflected ? 1.0 : 0.0;
+    state.deflectEma = alpha * indicator + (1.0 - alpha) * state.deflectEma;
+
+    if (!state.history.empty())
+        state.history.back()[2] = state.deflectEma;
+}
+
+std::vector<double> BouncingIeee8021dRelay::build_history_vector(const RLFlowState& state) const
+{
+    std::vector<double> history(rl_history_length * 4, 0.0);
+    size_t entries = std::min<size_t>(state.history.size(), rl_history_length);
+    if (entries == 0)
+        return history;
+
+    size_t offset = history.size() - entries * 4;
+    auto beginIt = state.history.end();
+    std::advance(beginIt, -static_cast<long>(entries));
+    size_t index = offset;
+    for (auto it = beginIt; it != state.history.end(); ++it) {
+        history[index++] = (*it)[0];
+        history[index++] = (*it)[1];
+        history[index++] = (*it)[2];
+        history[index++] = (*it)[3];
+    }
+    return history;
+}
+
+double BouncingIeee8021dRelay::compute_seq_norm(const RLFlowState& state) const
+{
+    double count = std::max(0.0, static_cast<double>(state.packetCount) - 1.0);
+    double denom = std::max(1.0, static_cast<double>(rl_expected_flow_packets));
+    return std::min(1.0, count / denom);
+}
+
+double BouncingIeee8021dRelay::compute_flow_age_norm(const RLFlowState& state, simtime_t now) const
+{
+    double age = (now - state.firstSeen).dbl();
+    double tau = std::max(rl_flow_age_tau_s, 1e-9);
+    double norm = 1.0 - std::exp(-age / tau);
+    return std::clamp(norm, 0.0, 1.0);
+}
+
+double BouncingIeee8021dRelay::compute_queue_util_z(const std::string& switchName, int interfaceIndex, double value)
+{
+    RunningStats &stats = access_queue_stats(switchName, interfaceIndex);
+    double mean = (stats.count > 0) ? stats.mean : value;
+    double std = (stats.count > 1) ? stats.stddev() : 1.0;
+    double z = (stats.count > 0) ? (value - mean) / std : 0.0;
+    stats.add(value);
+    return std::clamp(z, -10.0, 10.0);
+}
+
+double BouncingIeee8021dRelay::compute_total_util_z(const std::string& switchName, double value)
+{
+    RunningStats &stats = access_total_stats(switchName);
+    double mean = (stats.count > 0) ? stats.mean : value;
+    double std = (stats.count > 1) ? stats.stddev() : 1.0;
+    double z = (stats.count > 0) ? (value - mean) / std : 0.0;
+    stats.add(value);
+    return std::clamp(z, -10.0, 10.0);
+}
+
+int BouncingIeee8021dRelay::get_optional_int_param(const char *name, int defaultValue) const
+{
+    const cModule *module = this;
+    while (module != nullptr) {
+        cModule *mutableModule = const_cast<cModule *>(module);
+        if (mutableModule->hasPar(name)) {
+            try {
+                return mutableModule->par(name).intValue();
+            } catch (...) {
+                return defaultValue;
+            }
+        }
+        module = module->getParentModule();
+    }
+    return defaultValue;
+}
+
+double BouncingIeee8021dRelay::get_optional_double_param(const char *name, double defaultValue) const
+{
+    const cModule *module = this;
+    while (module != nullptr) {
+        cModule *mutableModule = const_cast<cModule *>(module);
+        if (mutableModule->hasPar(name)) {
+            try {
+                return mutableModule->par(name).doubleValue();
+            } catch (...) {
+                return defaultValue;
+            }
+        }
+        module = module->getParentModule();
+    }
+    return defaultValue;
 }
 
 void BouncingIeee8021dRelay::print_deflections_per_second()
