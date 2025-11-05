@@ -78,6 +78,15 @@ cd practical_deflection/Omnet_Sims/
 bash build.sh
 ```
 
+If the following error occurs:
+
+```
+./inet/networklayer/ipv6/Ipv6InterfaceData.h:27:2: error: #error "IPv6 feature disabled" 27 | #error "IPv6 feature disabled"
+```
+
+delete inet/src/inet/features.h file (should be empty) and rebuild.
+
+
 ### Step 5: Downloading distribution files
 
 To download the distribution files, make sure that you are in the right directory ("practical_deflection/Omnet_Sims") and then run the following commands:
