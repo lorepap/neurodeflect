@@ -298,34 +298,35 @@ echo "Running PROBABILISTIC"
 prepare_logs_dir "probabilistic_1G"
 opp_runall -j50 ../../src/dc_simulations -m -u Cmdenv -c PROBABILISTIC -n ..:../../src:../../../inet/src:../../../inet/examples:../../../inet/tutorials:../../../inet/showcases --image-path=../../../inet/images -l ../../../inet/src/INET omnetpp_1G_collection.ini --sim-time-limit=$SIMULATION_TIME $DEBUG_OPTION > logs/probabilistic_1G/opp_runall.log 2>&1
 echo "opp_runall finished successfully; log saved to logs/probabilistic_1G/opp_runall.log"
-
-# PROBABILISTIC WITH TB
-for tb_cfg in PROBABILISTIC_TB_S PROBABILISTIC_TB_M PROBABILISTIC_TB_L; do
-    echo "Running PROBABILISTIC_TB config: $tb_cfg"
-    prepare_logs_dir "probabilistic_tb_${tb_cfg}_1G"
-    opp_runall -j50 ../../src/dc_simulations -m -u Cmdenv -c PROBABILISTIC_${tb_cfg} -n ..:../../src:../../../inet/src:../../../inet/examples:../../../inet/tutorials:../../../inet/showcases --image-path=../../../inet/images -l ../../../inet/src/INET omnetpp_1G_collection.ini --sim-time-limit=$SIMULATION_TIME $DEBUG_OPTION >logs/probabilistic_tb_${tb_cfg}_1G/opp_runall.log 2>&1
-    echo "opp_runall finished successfully for PROBABILISTIC_TB config: $tb_cfg; log saved to opp_runall.log"
-    # extract and move  
-    do_extract probabilistic_tb
-    cp results/probabilistic_tb/*.out logs/probabilistic_tb_${tb_cfg}_1G/ || true
-    # move the extracted results    
-    echo "Moving the extracted results to results_1G_probabilistic_tb_${tb_cfg}"
-    rm -rf results_1G_probabilistic_tb_${tb_cfg}
-    mkdir -p results_1G_probabilistic_tb_${tb_cfg}
-    cp -r extracted_results/* results_1G_probabilistic_tb_${tb_cfg}/
-    rm -rf extracted_results
-done
-
 # extract and move
 do_extract probabilistic
 cp results/probabilistic/*.out logs/probabilistic_1G/ || true
-
 # move the extracted results
 echo "Moving the extracted results to results_1G_probabilistic"
 rm -rf results_1G_probabilistic
 mkdir -p results_1G_probabilistic
 cp -r extracted_results/* results_1G_probabilistic/
 rm -rf extracted_results
+
+# PROBABILISTIC_TB
+ for tb_cfg in PROBABILISTIC_TB_S PROBABILISTIC_TB_M PROBABILISTIC_TB_L; do
+    echo "Running PROBABILISTIC_TB config: $tb_cfg"
+    # lower tb_cfg
+    # tb_cfg_lower=$(echo "$tb_cfg" | tr '[:upper:]' '[:lower:]') # probabilistic_tb_s
+    prepare_logs_dir "${tb_cfg_lower}_1G"
+    opp_runall -j50 ../../src/dc_simulations -m -u Cmdenv -c ${tb_cfg} -n ..:../../src:../../../inet/src:../../../inet/examples:../../../inet/tutorials:../../../inet/showcases --image-path=../../../inet/images -l ../../../inet/src/INET omnetpp_1G_collection.ini --sim-time-limit=$SIMULATION_TIME $DEBUG_OPTION >logs/probabilistic_tb_1G/opp_runall.log 2>&1
+    echo "opp_runall finished successfully for ${tb_cfg_lower} config: $tb_cfg; log saved to opp_runall.log"
+done
+# extract and move
+do_extract probabilistic_tb
+cp results/probabilistic_tb/*.out logs/probabilistic_tb_1G/ || true
+# move the extracted results
+echo "Moving the extracted results to results_1G_probabilistic_tb_${tb_cfg}"
+rm -rf results_1G_probabilistic_tb
+mkdir -p results_1G_probabilistic_tb
+cp -r extracted_results/* results_1G_probabilistic_tb/
+rm -rf extracted_results
+rm -rf results/probabilistic_tb
 
 # UNIFORM RANDOM
 echo "\n\n-------------------------------------------"
@@ -345,21 +346,22 @@ cp -r extracted_results/* results_1G_random/
 rm -rf extracted_results
 
 # RANDOM WITH TB
-for tb_cfg in RANDOM_TB_S RANDOM_TB_M RANDOM_TB_L; do
-    echo "Running RANDOM_TB config: $tb_cfg"
-    prepare_logs_dir "random_tb_${tb_cfg}_1G"
-    opp_runall -j50 ../../src/dc_simulations -m -u Cmdenv -c RANDOM_${tb_cfg} -n ..:../../src:../../../inet/src:../../../inet/examples:../../../inet/tutorials:../../../inet/showcases --image-path=../../../inet/images -l ../../../inet/src/INET omnetpp_1G_collection.ini --sim-time-limit=$SIMULATION_TIME $DEBUG_OPTION >logs/random_tb_${tb_cfg}_1G/opp_runall.log 2>&1
-    echo "opp_runall finished successfully for RANDOM_TB config: $tb_cfg; log saved to opp_runall.log"
-    # extract and move  
-    do_extract random_tb
-    cp results/random_tb/*.out logs/random_tb_${tb_cfg}_1G/ || true
-    # move the extracted results    
-    echo "Moving the extracted results to results_1G_random_tb_${tb_cfg}"
-    rm -rf results_1G_random_tb_${tb_cfg}
-    mkdir -p results_1G_random_tb_${tb_cfg}
-    cp -r extracted_results/* results_1G_random_tb_${tb_cfg}/
-    rm -rf extracted_results
+for tb_cfg in THRESHOLD_TB_S THRESHOLD_TB_M THRESHOLD_TB_L; do
+    echo "Running THRESHOLD_TB config: $tb_cfg"
+    tb_cfg_lower=$(echo "$tb_cfg" | tr '[:upper:]' '[:lower:]')
+    prepare_logs_dir "${tb_cfg_lower}_1G"
+    opp_runall -j50 ../../src/dc_simulations -m -u Cmdenv -c ${tb_cfg} -n ..:../../src:../../../inet/src:../../../inet/examples:../../../inet/tutorials:../../../inet/showcases --image-path=../../../inet/images -l ../../../inet/src/INET omnetpp_1G_collection.ini --sim-time-limit=$SIMULATION_TIME $DEBUG_OPTION >logs/threshold_tb_1G/opp_runall.log 2>&1
+    echo "opp_runall finished successfully for THRESHOLD_TB config: $tb_cfg; log saved to opp_runall.log"
 done
+# extract and move
+do_extract threshold_tb
+cp results/threshold_tb/*.out logs/threshold_tb_1G/ || true
+# move the extracted results
+echo "Moving the extracted results to results_1G_threshold_tb"
+rm -rf results_1G_threshold_tb
+mkdir -p results_1G_threshold_tb
+cp -r extracted_results/* results_1G_threshold_tb/
+rm -rf extracted_results
 
 # FIXED THRESHOLD
 echo "\n\n-------------------------------------------"
