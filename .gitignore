@@ -48,7 +48,6 @@ core.*
 *.debug
 
 # RL Training outputs
-*/models/
 */experiments/
 */logs/
 */runs
