@@ -162,6 +162,7 @@ class BouncingIeee8021dRelay : public LayeredProtocolBase
     // RL-based deflection policy
     bool bounce_with_rl_policy;         // Enable RL-based deflection decisions
     std::string rl_model_path;          // Path to the trained PyTorch model
+    std::string rl_normalization_path;  // Optional path to normalization stats JSON
     torch::jit::script::Module rl_model;  // Loaded PyTorch model
     bool rl_model_loaded;               // Track if model is successfully loaded
 
@@ -196,6 +197,14 @@ class BouncingIeee8021dRelay : public LayeredProtocolBase
     std::unordered_map<size_t, RLFlowState> rl_flow_states;
     std::unordered_map<std::string, RunningStats> rl_queue_util_stats;
     std::unordered_map<std::string, RunningStats> rl_total_util_stats;
+    struct NormalizationEntry {
+        double mean = 0.0;
+        double std = 1.0;
+        bool valid = false;
+    };
+    std::unordered_map<std::string, NormalizationEntry> rl_queue_norm_table;
+    std::unordered_map<std::string, NormalizationEntry> rl_total_norm_table;
+    bool rl_normalization_loaded = false;
 
     // Deflection statistics
     unsigned long totalPackets = 0;
@@ -363,7 +372,11 @@ class BouncingIeee8021dRelay : public LayeredProtocolBase
     double compute_total_util_z(const std::string& switchName, double value);
     int get_optional_int_param(const char *name, int defaultValue) const;
     double get_optional_double_param(const char *name, double defaultValue) const;
-    
+    std::string get_optional_string_param(const char *name, const std::string& defaultValue) const;
+    void load_rl_normalization();
+    void seed_running_stats_from_normalization(const std::string& switchName, RunningStats& stats, bool isQueue);
+    static std::string dataset_key_to_switch_path(const std::string& datasetKey);
+
     void initialize_token_buckets();
     int resolve_token_bucket_index(InterfaceEntry *port) const;
     void refill_token_bucket(int bucket_index, omnetpp::simtime_t now);

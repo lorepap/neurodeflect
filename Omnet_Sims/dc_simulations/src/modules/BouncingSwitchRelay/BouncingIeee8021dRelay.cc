@@ -39,6 +39,9 @@
 #include <algorithm>
 #include <iostream>
 #include <iomanip>
+#include <fstream>
+#include <cctype>
+#include <unordered_map>
 
 using namespace inet;
 
@@ -250,6 +253,7 @@ void BouncingIeee8021dRelay::initialize(int stage)
         bounce_with_rl_policy = getAncestorPar("bounce_with_rl_policy");
         if (bounce_with_rl_policy) {
             rl_model_path = std::string(getAncestorPar("rl_model_path"));
+            rl_normalization_path = get_optional_string_param("rl_normalization_path", "");
 
             rl_history_length = std::max(1, get_optional_int_param("rl_history_length", rl_history_length));
             rl_expected_flow_packets = std::max(1, get_optional_int_param("rl_flow_expected_packets", rl_expected_flow_packets));
@@ -261,9 +265,13 @@ void BouncingIeee8021dRelay::initialize(int stage)
             rl_flow_states.clear();
             rl_queue_util_stats.clear();
             rl_total_util_stats.clear();
+            rl_queue_norm_table.clear();
+            rl_total_norm_table.clear();
+            rl_normalization_loaded = false;
 
             rl_model_loaded = false;
             load_rl_model();
+            load_rl_normalization();
 
             EV_INFO << "RL policy enabled. Model=" << rl_model_path
                     << " feature_dim=" << (6 + rl_history_length * 4)
@@ -3490,6 +3498,239 @@ void BouncingIeee8021dRelay::load_rl_model()
     }
 }
 
+std::string BouncingIeee8021dRelay::dataset_key_to_switch_path(const std::string& datasetKey)
+{
+    if (datasetKey.empty())
+        return "";
+
+    std::vector<std::string> parts;
+    size_t start = 0;
+    while (start <= datasetKey.size()) {
+        size_t pos = datasetKey.find("__", start);
+        if (pos == std::string::npos) {
+            parts.push_back(datasetKey.substr(start));
+            break;
+        }
+        parts.push_back(datasetKey.substr(start, pos - start));
+        start = pos + 2;
+    }
+
+    if (parts.empty())
+        return "";
+
+    std::ostringstream oss;
+    bool first = true;
+    for (const auto& part : parts) {
+        if (part.empty())
+            continue;
+        if (part == "relayUnit")
+            break;
+        if (first) {
+            oss << part;
+            first = false;
+            continue;
+        }
+
+        size_t underscore = part.rfind('_');
+        bool appended = false;
+        if (underscore != std::string::npos && underscore + 1 < part.size()) {
+            std::string index = part.substr(underscore + 1);
+            bool numeric = !index.empty() && std::all_of(index.begin(), index.end(), [](unsigned char c){ return std::isdigit(c) != 0; });
+            if (numeric) {
+                std::string base = part.substr(0, underscore);
+                oss << "." << base << "[" << index << "]";
+                appended = true;
+            }
+        }
+        if (!appended)
+            oss << "." << part;
+    }
+
+    return oss.str();
+}
+
+static std::string trim_copy(const std::string& input)
+{
+    size_t begin = 0;
+    while (begin < input.size() && std::isspace(static_cast<unsigned char>(input[begin])) != 0)
+        ++begin;
+    size_t end = input.size();
+    while (end > begin && std::isspace(static_cast<unsigned char>(input[end - 1])) != 0)
+        --end;
+    return input.substr(begin, end - begin);
+}
+
+void BouncingIeee8021dRelay::load_rl_normalization()
+{
+    std::string path = rl_normalization_path;
+    if (path.empty()) {
+        size_t slash = rl_model_path.find_last_of("/\\");
+        if (slash != std::string::npos)
+            path = rl_model_path.substr(0, slash + 1) + "normalization.json";
+        else
+            path = "normalization.json";
+    }
+
+    std::ifstream in(path.c_str());
+    if (!in.is_open()) {
+        EV_WARN << "RL normalization file not found at " << path << "; falling back to online statistics." << endl;
+        rl_normalization_loaded = false;
+        return;
+    }
+
+    enum class Section { None, Queue, Total };
+    enum class Subsection { None, Mean, Std };
+    Section section = Section::None;
+    Subsection subsection = Subsection::None;
+
+    std::unordered_map<std::string, double> queueMeans;
+    std::unordered_map<std::string, double> queueStds;
+    std::unordered_map<std::string, double> totalMeans;
+    std::unordered_map<std::string, double> totalStds;
+
+    std::string line;
+    while (std::getline(in, line)) {
+        std::string stripped = trim_copy(line);
+        if (stripped.empty())
+            continue;
+
+        if (stripped.find("\"queue_util\"") != std::string::npos) {
+            section = Section::Queue;
+            subsection = Subsection::None;
+            continue;
+        }
+        if (stripped.find("\"queues_tot_util\"") != std::string::npos) {
+            section = Section::Total;
+            subsection = Subsection::None;
+            continue;
+        }
+        if (stripped.find("\"packet_latency\"") != std::string::npos) {
+            section = Section::None;
+            subsection = Subsection::None;
+            continue;
+        }
+        if (stripped.find("\"mean\"") != std::string::npos && stripped.find('{') != std::string::npos) {
+            subsection = Subsection::Mean;
+            continue;
+        }
+        if (stripped.find("\"std\"") != std::string::npos && stripped.find('{') != std::string::npos) {
+            subsection = Subsection::Std;
+            continue;
+        }
+        if (!stripped.empty() && stripped[0] == '}') {
+            subsection = Subsection::None;
+            if (stripped == "}" || stripped == "},")
+                continue;
+        }
+
+        if (subsection == Subsection::None)
+            continue;
+        if (stripped.empty() || stripped[0] != '"')
+            continue;
+
+        size_t colon = stripped.find(':');
+        if (colon == std::string::npos)
+            continue;
+        size_t firstQuote = stripped.find('"');
+        size_t secondQuote = stripped.find('"', firstQuote + 1);
+        if (firstQuote == std::string::npos || secondQuote == std::string::npos)
+            continue;
+        std::string key = stripped.substr(firstQuote + 1, secondQuote - firstQuote - 1);
+
+        std::string valueStr = stripped.substr(colon + 1);
+        valueStr = trim_copy(valueStr);
+        if (!valueStr.empty() && valueStr.back() == ',')
+            valueStr.pop_back();
+
+        double value = 0.0;
+        try {
+            value = std::stod(valueStr);
+        } catch (...) {
+            continue;
+        }
+
+        if (section == Section::Queue) {
+            if (subsection == Subsection::Mean)
+                queueMeans[key] = value;
+            else if (subsection == Subsection::Std)
+                queueStds[key] = value;
+        } else if (section == Section::Total) {
+            if (subsection == Subsection::Mean)
+                totalMeans[key] = value;
+            else if (subsection == Subsection::Std)
+                totalStds[key] = value;
+        }
+    }
+
+    in.close();
+
+    auto registerEntry = [this](const std::string& datasetKey, double mean, double std, bool isQueue) {
+        if (datasetKey.empty())
+            return;
+        double safeStd = std;
+        if (!(safeStd > 0.0))
+            safeStd = 1.0;
+        NormalizationEntry entry{mean, safeStd, true};
+        std::string switchPath = dataset_key_to_switch_path(datasetKey);
+        if (switchPath.empty())
+            return;
+        std::string baseSegment = switchPath;
+        size_t lastDot = switchPath.rfind('.');
+        if (lastDot != std::string::npos && lastDot + 1 < switchPath.size())
+            baseSegment = switchPath.substr(lastDot + 1);
+        if (isQueue) {
+            rl_queue_norm_table[switchPath] = entry;
+            rl_queue_norm_table[switchPath + ".relayUnit"] = entry;
+            rl_queue_norm_table[baseSegment] = entry;
+        } else {
+            rl_total_norm_table[switchPath] = entry;
+            rl_total_norm_table[switchPath + ".relayUnit"] = entry;
+            rl_total_norm_table[baseSegment] = entry;
+        }
+    };
+
+    for (const auto& kv : queueMeans) {
+        double stdValue = 1.0;
+        auto it = queueStds.find(kv.first);
+        if (it != queueStds.end())
+            stdValue = it->second;
+        registerEntry(kv.first, kv.second, stdValue, true);
+    }
+
+    for (const auto& kv : totalMeans) {
+        double stdValue = 1.0;
+        auto it = totalStds.find(kv.first);
+        if (it != totalStds.end())
+            stdValue = it->second;
+        registerEntry(kv.first, kv.second, stdValue, false);
+    }
+
+    rl_normalization_loaded = (!rl_queue_norm_table.empty() || !rl_total_norm_table.empty());
+    if (rl_normalization_loaded) {
+        EV_INFO << "Loaded RL normalization stats from " << path
+                << " queue_entries=" << rl_queue_norm_table.size()
+                << " total_entries=" << rl_total_norm_table.size() << endl;
+    } else {
+        EV_WARN << "RL normalization file " << path << " did not yield usable entries; continuing with online statistics." << endl;
+    }
+}
+
+void BouncingIeee8021dRelay::seed_running_stats_from_normalization(const std::string& switchName, RunningStats& stats, bool isQueue)
+{
+    if (stats.count > 0 || !rl_normalization_loaded)
+        return;
+
+    const auto& table = isQueue ? rl_queue_norm_table : rl_total_norm_table;
+    auto it = table.find(switchName);
+    if (it == table.end() || !it->second.valid)
+        return;
+
+    const double safeStd = std::max(it->second.std, 1e-6);
+    stats.count = 2;  // Ensure stddev() returns the seeded variance
+    stats.mean = it->second.mean;
+    stats.m2 = safeStd * safeStd;
+}
+
 std::vector<double> BouncingIeee8021dRelay::extract_rl_state_features(Packet *packet, InterfaceEntry *ie, size_t &flowKeyOut)
 {
     std::vector<double> features;
@@ -3754,12 +3995,16 @@ std::string BouncingIeee8021dRelay::make_queue_key(const std::string& switchName
 BouncingIeee8021dRelay::RunningStats& BouncingIeee8021dRelay::access_queue_stats(const std::string& switchName, int interfaceIndex)
 {
     std::string key = make_queue_key(switchName, interfaceIndex);
-    return rl_queue_util_stats[key];
+    RunningStats &stats = rl_queue_util_stats[key];
+    seed_running_stats_from_normalization(switchName, stats, true);
+    return stats;
 }
 
 BouncingIeee8021dRelay::RunningStats& BouncingIeee8021dRelay::access_total_stats(const std::string& switchName)
 {
-    return rl_total_util_stats[switchName];
+    RunningStats &stats = rl_total_util_stats[switchName];
+    seed_running_stats_from_normalization(switchName, stats, false);
+    return stats;
 }
 
 BouncingIeee8021dRelay::RLFlowState& BouncingIeee8021dRelay::access_flow_state(size_t flowKey, simtime_t now, uint64_t sequenceNo)
@@ -3891,6 +4136,23 @@ double BouncingIeee8021dRelay::get_optional_double_param(const char *name, doubl
         if (mutableModule->hasPar(name)) {
             try {
                 return mutableModule->par(name).doubleValue();
+            } catch (...) {
+                return defaultValue;
+            }
+        }
+        module = module->getParentModule();
+    }
+    return defaultValue;
+}
+
+std::string BouncingIeee8021dRelay::get_optional_string_param(const char *name, const std::string& defaultValue) const
+{
+    const cModule *module = this;
+    while (module != nullptr) {
+        cModule *mutableModule = const_cast<cModule *>(module);
+        if (mutableModule->hasPar(name)) {
+            try {
+                return mutableModule->par(name).stdstringValue();
             } catch (...) {
                 return defaultValue;
             }
