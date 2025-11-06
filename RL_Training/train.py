@@ -24,6 +24,8 @@ ALGOS = {
     "awr": AWR,
 }
 
+DEFAULT_RUNS_ROOT = Path(__file__).resolve().parent / "runs"
+
 
 def set_seed(seed: int):
     random.seed(seed)
@@ -68,13 +70,16 @@ def resolve_device(requested: str) -> torch.device:
     return device
 
 
-def parse_args() -> argparse.Namespace:
+def build_arg_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(description="Offline RL training for per-switch deflection policies",
                                 formatter_class=argparse.ArgumentDefaultsHelpFormatter)
     project_root = Path(__file__).resolve().parents[1]
     default_data_base = project_root / "Omnet_Sims/dc_simulations/simulations/sims/tmp/data"
 
     p.add_argument("--data-dirs", nargs='+', required=False, default=[], help="Dataset directories containing per-switch CSVs (optional if --data-base is provided)")
+    p.add_argument("--data-base", type=str, default="/home/ubuntu/practical_deflection/Omnet_Sims/dc_simulations/simulations/sims/tmp/data", help="Base directory where data_1G_<policy> folders live")
+    p.add_argument("--algo", choices=list(ALGOS.keys()), default="cql")
+    p.add_argument("--out-dir", required=False, default="", help="Output directory for logs and checkpoints (defaults to runs/<algo>-<hyperparameters>)")
     p.add_argument("--data-base", type=str, default=str(default_data_base), help="Base directory where data_1G_<policy> folders live")
     p.add_argument("--algo", choices=list(ALGOS.keys()), default="iql")
     p.add_argument("--out-dir", required=True, help="Output directory for logs and checkpoints")
@@ -111,12 +116,45 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--hidden", type=int, default=256)
     p.add_argument("--layers", type=int, default=3)
 
-    return p.parse_args()
+    return p
+
+
+def format_hparam_value(value: Any) -> str:
+    if isinstance(value, float):
+        return f"{value:.4g}"
+    if isinstance(value, bool):
+        return "1" if value else "0"
+    if isinstance(value, (list, tuple)):
+        return "-".join(format_hparam_value(v) for v in value)
+    return str(value)
+
+
+def derive_default_out_dir(args: argparse.Namespace, parser: argparse.ArgumentParser) -> Path:
+    tracked = [
+        "steps", "batch_size", "lr", "weight_decay", "gamma", "tau", "beta", "polyak", "cql_alpha",
+        "w_q", "w_l", "w_o", "w_d", "w_f", "history", "ema_half_life_us", "hidden", "layers", "seed",
+    ]
+    changed_parts = []
+    for name in tracked:
+        if not hasattr(args, name):
+            continue
+        current = getattr(args, name)
+        default = parser.get_default(name)
+        if current != default:
+            changed_parts.append(f"{name}-{format_hparam_value(current)}")
+    descriptor = "_".join(changed_parts) if changed_parts else "default"
+    return DEFAULT_RUNS_ROOT / f"{args.algo}-{descriptor}"
 
 
 def main():
-    args = parse_args()
+    parser = build_arg_parser()
+    args = parser.parse_args()
     set_seed(args.seed)
+
+    if not args.out_dir:
+        default_path = derive_default_out_dir(args, parser)
+        args.out_dir = str(default_path)
+        print(f"[train] Using default output directory {args.out_dir}")
 
     out_dir = Path(args.out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
