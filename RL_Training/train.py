@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 import argparse
 import json
-import os
 import random
 from pathlib import Path
 from typing import List, Dict, Any
@@ -30,13 +29,53 @@ def set_seed(seed: int):
     random.seed(seed)
     np.random.seed(seed)
     torch.manual_seed(seed)
+    if torch.cuda.is_available():
+        torch.cuda.manual_seed_all(seed)
+
+
+def resolve_device(requested: str) -> torch.device:
+    def describe_cuda(index: int) -> None:
+        name = torch.cuda.get_device_name(index)
+        cap_major, cap_minor = torch.cuda.get_device_capability(index)
+        print(f"[train] Using CUDA device cuda:{index} — {name} (SM {cap_major}.{cap_minor})")
+
+    if requested == "auto":
+        if torch.cuda.is_available():
+            index = torch.cuda.current_device()
+            torch.cuda.set_device(index)
+            describe_cuda(index)
+            return torch.device(f"cuda:{index}")
+        print("[train] Auto-selected CPU (CUDA unavailable).")
+        return torch.device("cpu")
+
+    try:
+        device = torch.device(requested)
+    except (RuntimeError, ValueError):
+        print(f"[train] Invalid device '{requested}'. Falling back to CPU.")
+        return torch.device("cpu")
+
+    if device.type == "cuda":
+        if not torch.cuda.is_available():
+            print("[train] CUDA requested but not available. Falling back to CPU.")
+            return torch.device("cpu")
+        index = device.index if device.index is not None else torch.cuda.current_device()
+        torch.cuda.set_device(index)
+        describe_cuda(index)
+        device = torch.device(f"cuda:{index}")
+    else:
+        print(f"[train] Using device: {device}")
+
+    return device
 
 
 def parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser(description="Offline RL training for per-switch deflection policies",
                                 formatter_class=argparse.ArgumentDefaultsHelpFormatter)
+    project_root = Path(__file__).resolve().parents[1]
+    default_data_base = project_root / "Omnet_Sims/dc_simulations/simulations/sims/tmp/data"
+
     p.add_argument("--data-dirs", nargs='+', required=False, default=[], help="Dataset directories containing per-switch CSVs (optional if --data-base is provided)")
-    p.add_argument("--data-base", type=str, default="/home/ubuntu/practical_deflection/Omnet_Sims/dc_simulations/simulations/sims/tmp/data", help="Base directory where data_1G_<policy> folders live")
+    p.add_argument("--data-base", type=str, default=str(default_data_base), help="Base directory where data_1G_<policy> folders live")
     p.add_argument("--algo", choices=list(ALGOS.keys()), default="iql")
     p.add_argument("--out-dir", required=True, help="Output directory for logs and checkpoints")
     p.add_argument("--steps", type=int, default=200000)
@@ -130,11 +169,10 @@ def main():
     # Build dataset and model
     dataset = TransitionDataset(ds)
     # Device selection
-    if args.device == "auto":
-        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    else:
-        device = torch.device(args.device)
-    pin = (device.type == "cuda")
+    device = resolve_device(args.device)
+    if device.type == "cuda" and torch.backends.cudnn.is_available():
+        torch.backends.cudnn.benchmark = True
+    pin = (device.type == "cuda" and torch.cuda.is_available())
     loader = torch.utils.data.DataLoader(
         dataset,
         batch_size=args.batch_size,
@@ -187,8 +225,9 @@ def main():
                     s_sample = torch.from_numpy(ds['s'][idx]).float().to(device)
                     pi = nets['actor'](s_sample)
                     probs = torch.softmax(pi, dim=-1)
+                    probs_cpu = probs.detach().cpu()
                     deflect_rate = probs[:, 1].mean().item() if n_actions >= 2 else 0.0
-                    kl = compute_behavior_kl(probs.numpy(), ds['a'][idx])
+                    kl = compute_behavior_kl(probs_cpu.numpy(), ds['a'][idx])
                 row = {
                     "step": global_step,
                     "critic_loss": float(metrics.get("critic_loss", np.nan)),
