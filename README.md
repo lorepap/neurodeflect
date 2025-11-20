@@ -1,4 +1,4 @@
-# Practical Deflection – Project Guide
+# NeuroDeflect: In-Network RL for Packet Deflection
 
 This guide orients new contributors (human or AI) to the repository layout, environment setup, OMNeT++ experiment pipeline, and the offline RL training workflow. Follow it end-to-end when bootstrapping on a fresh machine.
 
