@@ -1,0 +1,91 @@
+# Neurodeflect Experiments
+
+This repository packages the OMNeT++ simulations, offline RL training code, and plotting utilities for the Neurodeflect (Practical Deflection) experiments. Heavy simulation outputs are intentionally excluded (e.g., `Omnet_Sims/dc_simulations/simulations/sims/tmp/data` and `.../runs`).
+
+## Prerequisites
+- Ubuntu 18.04/20.04 with build tools: `sudo apt install -y build-essential flex bison zlib1g-dev libxml2-dev sqlite3 libsqlite3-dev python3 python3-numpy python3-matplotlib zip unzip`
+- OMNeT++ 5.6.2 installed and on `PATH` (run `. setenv`, `./configure WITH_QTENV=no WITH_OSG=no WITH_OSGEARTH=no`, then `make`).
+- Optional: libtorch 2.0.1+cpu for RL-driven builds (set `CMAKE_PREFIX_PATH=$HOME/libtorch`).
+
+## One-Time Setup
+1) Clone + submodules (distribution files for traffic generation):
+```
+git clone git@github.com:<you>/neurodeflect.git
+cd neurodeflect
+git submodule update --init --recursive
+```
+2) Build simulator and INET wrapper:
+```
+cd Omnet_Sims
+bash build.sh
+```
+
+## Workflow Overview
+### 1) Data collection via OMNeT++ (baseline policies)
+```
+cd Omnet_Sims/dc_simulations/simulations/sims
+# Example: run all 1G configs for 10s (ECMP, DIBS, SD, Vertigo, probabilistic, threshold, random, *_tb variants)
+./run_1G_experiments.sh 10s
+```
+- Outputs land in `results_1G_{policy}/` under the same directory.
+- For targeted runs, pass a config name (e.g., `./run_1G_experiments.sh 10s ecmp`).
+
+### 2) Build RL training datasets from simulation results
+```
+cd Omnet_Sims/dc_simulations/simulations/sims
+# Converts results_1G_* dirs into per-policy CSVs under tmp/data/
+./run_all_dataset_creation.sh
+# or manually:
+# ./run_dataset_creation.sh --results-dir results_1G_dibs --output-dir tmp/data/data_1G_dibs [--runs <run_ids>]
+```
+Results: `tmp/data/data_1G_<policy>/` with per-switch CSVs ready for offline RL.
+
+### 3) Train offline RL policies
+```
+cd RL_Training
+python3 train.py \
+  --data-base ../Omnet_Sims/dc_simulations/simulations/sims/tmp/data \
+  --algo iql --out-dir runs/iql_all --steps 200000 --batch-size 2048
+```
+- Pick `--algo` from `iql|cql|awr`.
+- Traces and checkpoints live in `RL_Training/runs/...` (ignored by git).
+
+### 4) Export a TorchScript actor for online inference
+```
+cd RL_Training
+python3 models/convert_ckpt_to_model.py \
+  --ckpt runs/iql_all/checkpoint_200000.pt \
+  --out runs/iql_all/actor_200000_scripted.pt
+```
+Note the absolute path to the exported `*.pt` file.
+
+### 5) Run OMNeT++ with the RL policy
+```
+cd Omnet_Sims/dc_simulations/simulations/sims
+# Update **.agg[*].rl_model_path in omnetpp_1G.ini to the TorchScript path above
+./run_rl_experiment.sh 10s           # add --fast for express mode
+```
+Outputs: `results_rl_policy/` plus logs in `logs/rl_policy/`.
+
+### 6) Plot RL vs. baselines
+```
+cd Omnet_Sims/dc_simulations/simulations/sims/plots
+python3 plot_rl_vs_baselines.py \
+  --rl-dir ../results_rl_policy \
+  --baseline vertigo:../results_1G_vertigo \
+  --baseline dibs:../results_1G_dibs \
+  --baseline ecmp:../results_1G_ecmp \
+  --random ../results_1G_random \
+  --out-dir ./figs
+```
+Generates: `rl_vs_baselines_fct_qct.png`, `rl_vs_random_fct_qct.png`, `rl_deflection_timeline.png`.
+
+## Repo Layout
+- `Omnet_Sims/` – OMNeT++ + INET sources, simulation configs, extraction scripts.
+- `RL_Training/` – offline RL dataset loader, training loop, FQE utilities, TorchScript export.
+- `Switch_Implementations/` – P4 control/data plane references for deflection variants.
+
+## Notes
+- Large artifacts (simulation outputs under `.../tmp/data` or `.../runs`) are omitted; regenerate via steps above.
+- Use `--cmdenv-express-mode=true` (via `--fast`) to smoke-test configs; omit for full-fidelity runs.
+- If INET build complains about IPv6 features, remove the empty `Omnet_Sims/inet/src/inet/features.h` and rebuild.
