@@ -1,4 +1,4 @@
-# Neurodeflect Experiments
+# Neurodeflect: Datacenter In-network Packet Deflection via Reinforcement Learning
 
 Neurodeflect explores learning-based packet deflection in datacenter fabrics: we simulate traffic, train offline RL policies per switch, and validate them against classic schemes (ECMP, DIBS, Vertigo, probabilistic/threshold baselines) with the goal of cutting tail latency and flow completion times under congestion.
 
